@@ -1,0 +1,3 @@
+* text=auto
+public/mediapipe/*.task binary
+public/mediapipe/wasm/* -diff
