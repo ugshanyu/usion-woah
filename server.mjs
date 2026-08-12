@@ -1,7 +1,7 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchCloudflareIceServers } from './server/cloudflare-turn.mjs';
+import { fetchMeteredIceServers } from './server/metered-turn.mjs';
 import { createTurnCredentials } from './server/turn-credentials.mjs';
 
 const app = express();
@@ -11,16 +11,17 @@ const apiUrl = String(process.env.USION_API_URL || 'https://mobile.mongolai.mn')
 const serviceId = process.env.USION_SERVICE_ID || '';
 const turnUrls = String(process.env.TURN_URLS || '').split(',').map((url) => url.trim()).filter(Boolean);
 const turnSecret = process.env.TURN_SHARED_SECRET || '';
-const cloudflareTurnKeyId = process.env.CLOUDFLARE_TURN_KEY_ID || '';
-const cloudflareTurnApiToken = process.env.CLOUDFLARE_TURN_API_TOKEN || '';
+const meteredTurnDomain = process.env.METERED_TURN_DOMAIN || '';
+const meteredTurnApiKey = process.env.METERED_TURN_API_KEY || '';
 const ttlSeconds = Math.max(60, Math.min(3600, Number(process.env.TURN_TTL_SECONDS || 600)));
 const issueBuckets = new Map();
-const managedTurnConfigured = Boolean(cloudflareTurnKeyId && cloudflareTurnApiToken);
+const managedTurnConfigured = Boolean(meteredTurnDomain && meteredTurnApiKey);
 const coturnConfigured = Boolean(turnUrls.length && turnSecret);
 const turnConfigured = managedTurnConfigured || coturnConfigured;
+const turnProviderCount = Number(managedTurnConfigured) + Number(coturnConfigured);
 
-if (process.env.NODE_ENV === 'production' && (!serviceId || !turnConfigured)) {
-  console.error('[FATAL] USION_SERVICE_ID and a managed or coturn TURN configuration are required in production.');
+if (process.env.NODE_ENV === 'production' && (!serviceId || turnProviderCount !== 1)) {
+  console.error('[FATAL] USION_SERVICE_ID and exactly one Metered or coturn TURN configuration are required in production.');
   process.exit(1);
 }
 
@@ -82,7 +83,7 @@ async function verifyRoom(token, roomId, userId, expectedServiceId) {
 app.get('/health', (_, response) => response.json({
   ok: true,
   turnConfigured,
-  turnProvider: managedTurnConfigured ? 'cloudflare' : coturnConfigured ? 'coturn' : 'none',
+  turnProvider: managedTurnConfigured ? 'metered' : coturnConfigured ? 'coturn' : 'none',
 }));
 
 app.post('/api/ice', async (request, response) => {
@@ -99,10 +100,9 @@ app.post('/api/ice', async (request, response) => {
     let iceServers;
     if (managedTurnConfigured) {
       try {
-        iceServers = await fetchCloudflareIceServers({
-          keyId: cloudflareTurnKeyId,
-          apiToken: cloudflareTurnApiToken,
-          ttlSeconds,
+        iceServers = await fetchMeteredIceServers({
+          domain: meteredTurnDomain,
+          apiKey: meteredTurnApiKey,
         });
       } catch {
         return response.status(503).json({ error: 'ice_unavailable' });

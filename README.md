@@ -53,12 +53,12 @@ The included Dockerfile is the supported deployment path. Production requires:
 - `USION_API_URL=https://mobile.mongolai.mn`
 - optional `TURN_TTL_SECONDS`, 60–3600 seconds, default 600
 
-Configure exactly one TURN provider:
+Configure exactly one TURN provider. Production uses the non-Cloudflare Metered option:
 
-- Recommended: `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` for Cloudflare Realtime TURN.
+- Recommended: `METERED_TURN_DOMAIN` (the dedicated `*.metered.live` account domain) and `METERED_TURN_API_KEY` (a TURN Credential API key).
 - Self-hosted coturn: `TURN_URLS` with UDP and TLS/TCP 443 endpoints, plus a dedicated `TURN_SHARED_SECRET` matching coturn `static-auth-secret`.
 
-`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits issuance, and returns short-lived ICE credentials. Provider API tokens and permanent TURN credentials never ship to the browser.
+`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits issuance, and returns the account-scoped ICE configuration. Provider API keys never ship to the browser. The Metered hostname is restricted to the exact `*.metered.live` namespace to prevent server-side request forgery.
 
 After deployment:
 
