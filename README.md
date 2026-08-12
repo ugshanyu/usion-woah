@@ -47,15 +47,18 @@ npm run build
 
 ## Production deployment
 
-The included Dockerfile is the supported deployment path. Production refuses to start without all of:
+The included Dockerfile is the supported deployment path. Production requires:
 
-- `USION_SERVICE_ID=woah-challenge`
+- `USION_SERVICE_ID=woah-challenge-b0406313`
 - `USION_API_URL=https://mobile.mongolai.mn`
-- `TURN_URLS` containing credentialed coturn endpoints; include TLS/TCP 443 and UDP where possible
-- `TURN_SHARED_SECRET` matching coturn `static-auth-secret`
 - optional `TURN_TTL_SECONDS`, 60–3600 seconds, default 600
 
-`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits issuance, and returns short-lived coturn REST credentials. Permanent TURN credentials must never be shipped to the browser.
+Configure exactly one TURN provider:
+
+- Recommended: `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` for Cloudflare Realtime TURN.
+- Self-hosted coturn: `TURN_URLS` with UDP and TLS/TCP 443 endpoints, plus a dedicated `TURN_SHARED_SECRET` matching coturn `static-auth-secret`.
+
+`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits issuance, and returns short-lived ICE credentials. Provider API tokens and permanent TURN credentials never ship to the browser.
 
 After deployment:
 

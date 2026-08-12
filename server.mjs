@@ -1,6 +1,7 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fetchCloudflareIceServers } from './server/cloudflare-turn.mjs';
 import { createTurnCredentials } from './server/turn-credentials.mjs';
 
 const app = express();
@@ -10,11 +11,16 @@ const apiUrl = String(process.env.USION_API_URL || 'https://mobile.mongolai.mn')
 const serviceId = process.env.USION_SERVICE_ID || '';
 const turnUrls = String(process.env.TURN_URLS || '').split(',').map((url) => url.trim()).filter(Boolean);
 const turnSecret = process.env.TURN_SHARED_SECRET || '';
+const cloudflareTurnKeyId = process.env.CLOUDFLARE_TURN_KEY_ID || '';
+const cloudflareTurnApiToken = process.env.CLOUDFLARE_TURN_API_TOKEN || '';
 const ttlSeconds = Math.max(60, Math.min(3600, Number(process.env.TURN_TTL_SECONDS || 600)));
 const issueBuckets = new Map();
+const managedTurnConfigured = Boolean(cloudflareTurnKeyId && cloudflareTurnApiToken);
+const coturnConfigured = Boolean(turnUrls.length && turnSecret);
+const turnConfigured = managedTurnConfigured || coturnConfigured;
 
-if (process.env.NODE_ENV === 'production' && (!serviceId || !turnUrls.length || !turnSecret)) {
-  console.error('[FATAL] USION_SERVICE_ID, TURN_URLS, and TURN_SHARED_SECRET are required in production.');
+if (process.env.NODE_ENV === 'production' && (!serviceId || !turnConfigured)) {
+  console.error('[FATAL] USION_SERVICE_ID and a managed or coturn TURN configuration are required in production.');
   process.exit(1);
 }
 
@@ -73,7 +79,11 @@ async function verifyRoom(token, roomId, userId, expectedServiceId) {
   if (roomServiceId !== expectedServiceId || !Array.isArray(room.player_ids) || !room.player_ids.includes(userId)) throw new Error('not_participant');
 }
 
-app.get('/health', (_, response) => response.json({ ok: true, turnConfigured: Boolean(turnUrls.length && turnSecret) }));
+app.get('/health', (_, response) => response.json({
+  ok: true,
+  turnConfigured,
+  turnProvider: managedTurnConfigured ? 'cloudflare' : coturnConfigured ? 'coturn' : 'none',
+}));
 
 app.post('/api/ice', async (request, response) => {
   const token = bearer(request);
@@ -86,10 +96,23 @@ app.post('/api/ice', async (request, response) => {
     const userId = String(identity.user_id || '');
     if (!userId) throw new Error('invalid_identity');
     await verifyRoom(token, roomId, userId, serviceId);
-    const iceServers = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
-    if (turnUrls.length && turnSecret) {
+    let iceServers;
+    if (managedTurnConfigured) {
+      try {
+        iceServers = await fetchCloudflareIceServers({
+          keyId: cloudflareTurnKeyId,
+          apiToken: cloudflareTurnApiToken,
+          ttlSeconds,
+        });
+      } catch {
+        return response.status(503).json({ error: 'ice_unavailable' });
+      }
+    } else {
       const { username, credential } = createTurnCredentials(turnSecret, userId, ttlSeconds);
-      iceServers.push({ urls: turnUrls, username, credential });
+      iceServers = [
+        { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+        { urls: turnUrls, username, credential },
+      ];
     }
     response.setHeader('Cache-Control', 'no-store');
     return response.json({ iceServers, expiresIn: ttlSeconds });
