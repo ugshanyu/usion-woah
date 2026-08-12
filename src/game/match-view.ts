@@ -1,6 +1,6 @@
 import type { Role, RoundResult, Score } from './types';
 
-export type MatchPhase = 'waiting' | 'connecting' | 'syncing' | 'countdown' | 'judging' | 'result' | 'gameover' | 'reconnecting';
+export type MatchPhase = 'waiting' | 'connecting' | 'syncing' | 'countdown' | 'judging' | 'result' | 'gameover' | 'reconnecting' | 'network-error';
 
 export type MatchView = {
   phase: MatchPhase;

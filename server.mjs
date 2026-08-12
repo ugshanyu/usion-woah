@@ -1,21 +1,18 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTurnCredentials } from './server/turn-credentials.mjs';
+import { buildIceServers, parseStunUrls } from './server/ice-config.mjs';
 
 const app = express();
 const root = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const apiUrl = String(process.env.USION_API_URL || 'https://mobile.mongolai.mn').replace(/\/$/, '');
 const serviceId = process.env.USION_SERVICE_ID || '';
-const turnUrls = String(process.env.TURN_URLS || '').split(',').map((url) => url.trim()).filter(Boolean);
-const turnSecret = process.env.TURN_SHARED_SECRET || '';
-const ttlSeconds = Math.max(60, Math.min(3600, Number(process.env.TURN_TTL_SECONDS || 600)));
+const stunUrls = parseStunUrls(process.env.STUN_URLS);
 const issueBuckets = new Map();
-const coturnConfigured = Boolean(turnUrls.length && turnSecret);
 
-if (process.env.NODE_ENV === 'production' && (!serviceId || !coturnConfigured)) {
-  console.error('[FATAL] USION_SERVICE_ID and a self-hosted coturn configuration are required in production.');
+if (process.env.NODE_ENV === 'production' && !serviceId) {
+  console.error('[FATAL] USION_SERVICE_ID is required in production.');
   process.exit(1);
 }
 
@@ -76,8 +73,8 @@ async function verifyRoom(token, roomId, userId, expectedServiceId) {
 
 app.get('/health', (_, response) => response.json({
   ok: true,
-  turnConfigured: coturnConfigured,
-  turnProvider: coturnConfigured ? 'self-hosted-coturn' : 'none',
+  iceMode: 'stun-only',
+  stunServerCount: stunUrls.length,
 }));
 
 app.post('/api/ice', async (request, response) => {
@@ -91,12 +88,8 @@ app.post('/api/ice', async (request, response) => {
     const userId = String(identity.user_id || '');
     if (!userId) throw new Error('invalid_identity');
     await verifyRoom(token, roomId, userId, serviceId);
-    const { username, credential } = createTurnCredentials(turnSecret, userId, ttlSeconds);
-    const iceServers = [
-      { urls: turnUrls, username, credential },
-    ];
     response.setHeader('Cache-Control', 'no-store');
-    return response.json({ iceServers, expiresIn: ttlSeconds });
+    return response.json({ iceServers: buildIceServers(stunUrls.join(',')), mode: 'stun-only' });
   } catch {
     return response.status(403).json({ error: 'forbidden' });
   }

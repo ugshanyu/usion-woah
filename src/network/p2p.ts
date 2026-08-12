@@ -11,6 +11,10 @@ type P2POptions = {
   sendSignal: (signal: RtcSignal) => void;
 };
 
+export type P2PState = RTCPeerConnectionState | 'channel-open' | 'unavailable';
+
+const CONNECT_TIMEOUT_MS = 15_000;
+
 export class P2PCamera {
   private pc: RTCPeerConnection | null = null;
   private channel: RTCDataChannel | null = null;
@@ -19,12 +23,13 @@ export class P2PCamera {
   private generation = 0;
   private pendingIce: RTCIceCandidateInit[] = [];
   private disconnectTimer: number | null = null;
+  private connectionTimer: number | null = null;
   private readonly options: P2POptions;
 
   remoteStream = new MediaStream();
   onRemoteStream: ((stream: MediaStream) => void) | null = null;
   onControl: ((message: unknown) => void) | null = null;
-  onState: ((state: RTCPeerConnectionState | 'channel-open') => void) | null = null;
+  onState: ((state: P2PState) => void) | null = null;
 
   constructor(options: P2POptions) {
     this.options = options;
@@ -47,6 +52,11 @@ export class P2PCamera {
     };
     pc.onicecandidate = (event) => this.sendSignal(event.candidate ? 'ice' : 'ice-complete', event.candidate?.toJSON());
     pc.onconnectionstatechange = () => this.handleConnectionState();
+    this.connectionTimer = globalThis.setTimeout(() => {
+      if (this.connected) return;
+      this.onState?.('unavailable');
+      this.closePeer();
+    }, CONNECT_TIMEOUT_MS);
 
     if (this.options.isHost) {
       this.bindChannel(pc.createDataChannel('woah-control', { ordered: true }));
@@ -94,7 +104,10 @@ export class P2PCamera {
 
   private bindChannel(channel: RTCDataChannel): void {
     this.channel = channel;
-    channel.onopen = () => this.onState?.('channel-open');
+    channel.onopen = () => {
+      this.clearConnectionTimer();
+      this.onState?.('channel-open');
+    };
     channel.onmessage = (event) => {
       try { this.onControl?.(JSON.parse(String(event.data))); } catch { /* ignore malformed peer data */ }
     };
@@ -131,6 +144,7 @@ export class P2PCamera {
   }
 
   private closePeer(): void {
+    this.clearConnectionTimer();
     if (this.disconnectTimer !== null) window.clearTimeout(this.disconnectTimer);
     this.disconnectTimer = null;
     try { this.channel?.close(); } catch { /* noop */ }
@@ -139,5 +153,10 @@ export class P2PCamera {
     this.pc = null;
     this.pendingIce = [];
     this.lastRemoteSignalSeq = 0;
+  }
+
+  private clearConnectionTimer(): void {
+    if (this.connectionTimer !== null) globalThis.clearTimeout(this.connectionTimer);
+    this.connectionTimer = null;
   }
 }

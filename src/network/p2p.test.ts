@@ -25,7 +25,10 @@ class FakePeer {
 }
 
 describe('P2PCamera signaling', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('processes the first offer once when it creates the guest peer lazily', async () => {
     vi.stubGlobal('MediaStream', FakeStream);
@@ -40,5 +43,23 @@ describe('P2PCamera signaling', () => {
     await camera.handleSignal(offer);
     expect(FakePeer.latest.setRemoteDescription).toHaveBeenCalledOnce();
     expect(sent.filter((signal) => signal.kind === 'answer')).toHaveLength(1);
+  });
+
+  it('reports an incompatible network when direct P2P cannot connect', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('MediaStream', FakeStream);
+    vi.stubGlobal('RTCPeerConnection', FakePeer);
+    const camera = new P2PCamera({
+      myId: 'guest', peerId: 'host', isHost: false, matchId: 'match', hostEpoch: 'epoch',
+      iceServers: [{ urls: 'stun:stun.example:3478' }], localStream: new FakeStream() as unknown as MediaStream, sendSignal: () => undefined,
+    });
+    const states: string[] = [];
+    camera.onState = (state) => states.push(state);
+
+    await camera.start();
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(states).toContain('unavailable');
+    expect(FakePeer.latest.connectionState).toBe('closed');
   });
 });

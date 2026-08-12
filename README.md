@@ -7,7 +7,7 @@ This is the standalone game repository. The Usion monorepo contains only the ser
 ## Fairness and privacy contract
 
 - Pose and head direction are inferred on each player's device. Landmark samples and camera frames are never sent to Usion.
-- Camera video uses a WebRTC peer connection protected by DTLS-SRTP. A credentialed TURN server relays encrypted packets when a direct path is unavailable.
+- Camera video uses a direct WebRTC peer connection protected by DTLS-SRTP. V1 is intentionally STUN-only and does not use a media relay.
 - Usion provides the authenticated room, invitation flow, targeted WebRTC signaling, and an essential event journal.
 - Verdicts use the camera source-frame timestamp carried through inference. Network arrival time and inference completion time do not affect the movement window.
 - The guest estimates host clock offset from the lowest-RTT probes. If uncertainty exceeds 50 ms, a round is replayed instead of awarding a point.
@@ -51,22 +51,23 @@ The included Dockerfile is the supported deployment path. Production requires:
 
 - `USION_SERVICE_ID=woah-challenge-b0406313`
 - `USION_API_URL=https://mobile.mongolai.mn`
-- optional `TURN_TTL_SECONDS`, 60–3600 seconds, default 600
+- optional `STUN_URLS`, a comma-separated list; defaults to two public Google STUN endpoints
 
-Production uses only a Usion-owned, self-hosted coturn relay:
+Production intentionally uses STUN-only direct P2P:
 
-- `TURN_URLS` with UDP and TLS/TCP 443 endpoints.
-- `TURN_SHARED_SECRET` matching a dedicated coturn `static-auth-secret`. Never commit this secret or reuse another product's relay secret.
+- No Cloudflare, AWS, managed TURN, or self-hosted coturn is required.
+- Some symmetric-NAT, mobile-carrier, corporate, or restrictive firewall combinations cannot establish direct video.
+- If the encrypted P2P camera and control channel do not open within 15 seconds, the match does not start and both players are told to switch networks.
 
-`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits issuance, and mints short-lived HMAC credentials for the relay. The permanent coturn secret never ships to the browser.
+`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits requests, and returns only the configured STUN URLs.
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true` and `turnConfigured: true`.
+1. Confirm `/health` returns `ok: true` and `iceMode: "stun-only"`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.
-5. Verify Share → Join on two signed-in real devices, including Wi-Fi-to-cellular forced TURN.
+5. Verify Share → Join on two signed-in real devices across same Wi-Fi, separate Wi-Fi, and Wi-Fi-to-cellular. Confirm incompatible networks stop before the first round with the explicit network message.
 6. Publish only after camera permission, video, synchronization, background/resume, disconnect/rejoin, and replay behavior pass on iOS and Android.
 
 ## Timing protocol
@@ -79,11 +80,11 @@ Essential ready/session/round/observation/verdict events are deduplicated and jo
 
 - iOS and Android production WebViews show the OS camera prompt only after **Enable camera**.
 - Calibration passes with glasses, facial hair/head coverings, varied skin tones and body sizes, portrait and landscape.
-- Both cameras connect on same Wi-Fi, separate Wi-Fi, and Wi-Fi ↔ cellular; TURN relay is confirmed.
+- Both cameras connect on same Wi-Fi and representative direct-P2P networks; an intentionally incompatible ICE fixture stops before round start.
 - Synthetic 150 ms latency, 60 ms jitter, and 5% signaling/control loss cannot turn an invalid sample into a win/loss.
 - Backgrounding clears samples, camera, calibration, and the active round; foreground requires a new user gesture and calibration.
 - A held point/head pose before the cue is replayed; stale or reordered events cannot produce a second verdict.
-- No camera frames, landmarks, tokens, SDP, or TURN credentials appear in application logs.
+- No camera frames, landmarks, tokens, or SDP appear in application logs.
 
 ## Third-party assets
 

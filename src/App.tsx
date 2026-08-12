@@ -197,7 +197,7 @@ function MatchOverlay({ view, hasRoom, cue, t }: { view: MatchView; hasRoom: boo
     const verdict = view.result?.verdict ?? 'void';
     return <div className={`result-card ${verdict}`}><h2>{view.phase === 'gameover' ? t('gameover') : t(verdict)}</h2><p>{t(`${verdict}Detail` as 'hitDetail' | 'dodgeDetail' | 'voidDetail')}</p></div>;
   }
-  const key = view.phase === 'connecting' ? 'connecting' : view.phase === 'syncing' ? 'syncing' : view.phase === 'reconnecting' ? 'reconnecting' : !hasRoom ? 'share' : view.peerReady ? 'opponentReady' : 'waiting';
+  const key = view.phase === 'connecting' ? 'connecting' : view.phase === 'syncing' ? 'syncing' : view.phase === 'reconnecting' ? 'reconnecting' : view.phase === 'network-error' ? 'networkUnsupported' : !hasRoom ? 'share' : view.peerReady ? 'opponentReady' : 'waiting';
   return <div className="status-card">{t(key)}</div>;
 }
 

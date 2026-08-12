@@ -13,7 +13,11 @@ export async function fetchIceServers(roomId: string, serviceId: string): Promis
     if (!response.ok) throw new Error('ice_unavailable');
     const payload = await response.json() as { iceServers?: RTCIceServer[] };
     if (!Array.isArray(payload.iceServers) || !payload.iceServers.length) throw new Error('ice_unavailable');
-    return payload.iceServers;
+    const urls = payload.iceServers.flatMap((server) => typeof server.urls === 'string' ? [server.urls] : server.urls)
+      .filter((url): url is string => typeof url === 'string' && /^stuns?:[^\s]+$/i.test(url));
+    const stunUrls = [...new Set(urls)].slice(0, 8);
+    if (!stunUrls.length) throw new Error('ice_unavailable');
+    return [{ urls: stunUrls }];
   } catch {
     throw new Error('ice_unavailable');
   }

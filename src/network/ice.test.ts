@@ -4,10 +4,10 @@ import { fetchIceServers } from './ice';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ICE configuration', () => {
-  it('returns only the authenticated self-hosted relay configuration', async () => {
+  it('returns the authenticated STUN-only configuration', async () => {
     vi.stubGlobal('Usion', { user: { getToken: () => 'iframe-token' } });
-    const iceServers = [{ urls: ['turn:turn.usions.example:3478'], username: 'user', credential: 'credential' }];
-    const request = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ iceServers }) });
+    const iceServers = [{ urls: ['stun:stun.l.google.com:19302'] }];
+    const request = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ iceServers, mode: 'stun-only' }) });
     vi.stubGlobal('fetch', request);
 
     await expect(fetchIceServers('room-1', 'woah-1')).resolves.toEqual(iceServers);
@@ -17,9 +17,19 @@ describe('ICE configuration', () => {
     }));
   });
 
-  it('fails closed instead of using a public STUN or TURN fallback', async () => {
+  it('fails closed when the authenticated ICE endpoint is unavailable', async () => {
     vi.stubGlobal('Usion', { user: { getToken: () => 'iframe-token' } });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+    await expect(fetchIceServers('room-1', 'woah-1')).rejects.toThrow('ice_unavailable');
+  });
+
+  it('rejects TURN configuration even if an endpoint returns it', async () => {
+    vi.stubGlobal('Usion', { user: { getToken: () => 'iframe-token' } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ iceServers: [{ urls: 'turn:relay.example:3478', username: 'user', credential: 'secret' }] }),
+    }));
 
     await expect(fetchIceServers('room-1', 'woah-1')).rejects.toThrow('ice_unavailable');
   });
