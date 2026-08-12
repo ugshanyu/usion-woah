@@ -73,7 +73,7 @@ export class MatchController {
       this.view.score = Object.fromEntries(room.roster.map((id) => [id, 0]));
       this.nextPointerId = event.hostId;
       this.emit({ phase: 'connecting' });
-      void this.setupP2P();
+      void this.setupP2P().catch(() => this.emit({ phase: 'reconnecting', rtcState: 'failed' }));
       return;
     }
     if (!this.session || ('matchId' in event && event.matchId !== this.session.matchId) || ('hostEpoch' in event && event.hostEpoch !== this.session.hostEpoch)) return;

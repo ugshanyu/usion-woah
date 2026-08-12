@@ -1,22 +1,20 @@
-const FALLBACK_ICE: RTCIceServer[] = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-];
-
 export async function fetchIceServers(roomId: string, serviceId: string): Promise<RTCIceServer[]> {
   const deadline = performance.now() + 5000;
   while (!Usion.user.getToken() && performance.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
   const token = Usion.user.getToken();
-  if (!token) return FALLBACK_ICE;
+  if (!token) throw new Error('ice_auth_unavailable');
   try {
     const response = await fetch('/api/ice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ roomId, serviceId }),
+      signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok) return FALLBACK_ICE;
+    if (!response.ok) throw new Error('ice_unavailable');
     const payload = await response.json() as { iceServers?: RTCIceServer[] };
-    return Array.isArray(payload.iceServers) && payload.iceServers.length ? payload.iceServers : FALLBACK_ICE;
+    if (!Array.isArray(payload.iceServers) || !payload.iceServers.length) throw new Error('ice_unavailable');
+    return payload.iceServers;
   } catch {
-    return FALLBACK_ICE;
+    throw new Error('ice_unavailable');
   }
 }

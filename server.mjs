@@ -1,7 +1,6 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchMeteredIceServers } from './server/metered-turn.mjs';
 import { createTurnCredentials } from './server/turn-credentials.mjs';
 
 const app = express();
@@ -11,17 +10,12 @@ const apiUrl = String(process.env.USION_API_URL || 'https://mobile.mongolai.mn')
 const serviceId = process.env.USION_SERVICE_ID || '';
 const turnUrls = String(process.env.TURN_URLS || '').split(',').map((url) => url.trim()).filter(Boolean);
 const turnSecret = process.env.TURN_SHARED_SECRET || '';
-const meteredTurnDomain = process.env.METERED_TURN_DOMAIN || '';
-const meteredTurnApiKey = process.env.METERED_TURN_API_KEY || '';
 const ttlSeconds = Math.max(60, Math.min(3600, Number(process.env.TURN_TTL_SECONDS || 600)));
 const issueBuckets = new Map();
-const managedTurnConfigured = Boolean(meteredTurnDomain && meteredTurnApiKey);
 const coturnConfigured = Boolean(turnUrls.length && turnSecret);
-const turnConfigured = managedTurnConfigured || coturnConfigured;
-const turnProviderCount = Number(managedTurnConfigured) + Number(coturnConfigured);
 
-if (process.env.NODE_ENV === 'production' && (!serviceId || turnProviderCount !== 1)) {
-  console.error('[FATAL] USION_SERVICE_ID and exactly one Metered or coturn TURN configuration are required in production.');
+if (process.env.NODE_ENV === 'production' && (!serviceId || !coturnConfigured)) {
+  console.error('[FATAL] USION_SERVICE_ID and a self-hosted coturn configuration are required in production.');
   process.exit(1);
 }
 
@@ -82,8 +76,8 @@ async function verifyRoom(token, roomId, userId, expectedServiceId) {
 
 app.get('/health', (_, response) => response.json({
   ok: true,
-  turnConfigured,
-  turnProvider: managedTurnConfigured ? 'metered' : coturnConfigured ? 'coturn' : 'none',
+  turnConfigured: coturnConfigured,
+  turnProvider: coturnConfigured ? 'self-hosted-coturn' : 'none',
 }));
 
 app.post('/api/ice', async (request, response) => {
@@ -97,23 +91,10 @@ app.post('/api/ice', async (request, response) => {
     const userId = String(identity.user_id || '');
     if (!userId) throw new Error('invalid_identity');
     await verifyRoom(token, roomId, userId, serviceId);
-    let iceServers;
-    if (managedTurnConfigured) {
-      try {
-        iceServers = await fetchMeteredIceServers({
-          domain: meteredTurnDomain,
-          apiKey: meteredTurnApiKey,
-        });
-      } catch {
-        return response.status(503).json({ error: 'ice_unavailable' });
-      }
-    } else {
-      const { username, credential } = createTurnCredentials(turnSecret, userId, ttlSeconds);
-      iceServers = [
-        { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-        { urls: turnUrls, username, credential },
-      ];
-    }
+    const { username, credential } = createTurnCredentials(turnSecret, userId, ttlSeconds);
+    const iceServers = [
+      { urls: turnUrls, username, credential },
+    ];
     response.setHeader('Cache-Control', 'no-store');
     return response.json({ iceServers, expiresIn: ttlSeconds });
   } catch {
