@@ -14,4 +14,4 @@
 - [ ] Verify the real Usion Share -> Join path on two clients/devices.
 - [ ] Remove this task file after every item is complete and verified.
 
-Blocked release gates (2026-08-12): GitHub CLI credentials are invalid, Railway CLI/token and TURN configuration are absent. A stable HTTPS origin cannot be registered, camera-delegated, or tested on two real signed-in devices until those external credentials and endpoints exist.
+Blocked release gates (2026-08-12): the private GitHub remote is created and pushed, and Railway login is available. A production credentialed TURN endpoint/secret is still absent; do not reuse the platform-wide coturn secret in another service without explicit approval. A stable HTTPS origin cannot be published, camera-delegated, or tested on two real signed-in devices until TURN is configured and the Railway deployment is healthy.
