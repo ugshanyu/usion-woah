@@ -26,6 +26,11 @@ describe('head calibration and classification', () => {
     expect(classifyHead(feature(0.3, 0, { roll: Math.PI / 4 }), calibration).direction).toBe('unknown');
   });
 
+  it('accepts a smaller but complete face and rejects one that is too small', () => {
+    expect(classifyHead(feature(0.35, 0, { faceWidth: 0.11 }), calibration).direction).toBe('right');
+    expect(classifyHead(feature(0.35, 0, { faceWidth: 0.09 }), calibration).direction).toBe('unknown');
+  });
+
   it('rejects calibration without enough motion', () => {
     expect(buildHeadCalibration({ neutral: repeated(feature(0, 0)), left: repeated(feature(-0.01, 0)), right: repeated(feature(0.01, 0)), up: repeated(feature(0, 0.01)), down: repeated(feature(0, -0.01)) })).toBeNull();
   });

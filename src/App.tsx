@@ -7,7 +7,7 @@ import { VideoStage } from './components/VideoStage';
 import { MatchController, type MatchView } from './game/match-controller';
 import { languageFor, translator } from './i18n';
 import { UsionRoom, type RoomState } from './platform/room';
-import { CalibrationSession, type CalibrationStage } from './vision/calibration';
+import { CalibrationSession, type CalibrationFeedback, type CalibrationStage } from './vision/calibration';
 import { VisionInference } from './vision/inference';
 import { SampleBuffer } from './vision/sample-buffer';
 
@@ -35,7 +35,7 @@ export default function App() {
   const [modelStatus, setModelStatus] = useState<'idle' | 'loading' | 'ready' | 'slow' | 'error'>('idle');
   const [calibrationStage, setCalibrationStage] = useState<CalibrationStage>('neutral');
   const [calibrationProgress, setCalibrationProgress] = useState(0);
-  const [calibrationRetry, setCalibrationRetry] = useState(false);
+  const [calibrationFeedback, setCalibrationFeedback] = useState<CalibrationFeedback>('searching');
   const [direction, setDirection] = useState('neutral');
   const [error, setError] = useState<string | null>(null);
   const [setupFailure, setSetupFailure] = useState<SetupFailure>(null);
@@ -70,10 +70,10 @@ export default function App() {
       samples.push(sample);
       setDirection(sample.direction);
     };
-    calibration.onStage = (stage, progress, retry) => {
+    calibration.onStage = (stage, progress, feedback) => {
       setCalibrationStage(stage);
       setCalibrationProgress(progress);
-      setCalibrationRetry(Boolean(retry));
+      setCalibrationFeedback(feedback);
     };
     calibration.onComplete = () => {
       calibrated.current = true;
@@ -196,7 +196,7 @@ export default function App() {
         <>
           {phase === 'play' && roomState && <Scoreboard view={matchView} myId={roomState.myId} peerId={peerId} t={t} />}
           <VideoStage localRef={localVideo} remoteRef={remoteVideo} showRemote={phase === 'play' && Boolean(peerId)} localLabel={t('you')} remoteLabel={matchView.peerName || t('opponent')} badge={(phase === 'calibration' || matchView.role === 'looker') && direction !== 'neutral' && direction !== 'unknown' ? direction.toUpperCase() : undefined} />
-          {phase === 'calibration' && <CalibrationOverlay stage={calibrationStage} progress={calibrationProgress} retry={calibrationRetry} t={t} />}
+          {phase === 'calibration' && <CalibrationOverlay stage={calibrationStage} progress={calibrationProgress} feedback={calibrationFeedback} t={t} />}
           {phase === 'calibration' && modelStatus === 'loading' && <div className="toast">{t('models')}</div>}
           {modelStatus === 'slow' && <div className="toast warning">{t('slow')}</div>}
           {phase === 'play' && matchView.phase === 'countdown' && matchView.role === 'pointer' && <SwipePad roundId={matchView.roundId} onSwipe={(gesture) => match.submitSwipe(gesture)} t={t} />}

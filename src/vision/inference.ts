@@ -152,7 +152,6 @@ export class VisionInference {
     this.intervalMs = Math.max(50, Math.min(160, p95 * 1.5));
     if (p95 > 160) {
       this.onStatus?.('slow');
-      return;
     }
     this.onHeadFeature?.(result.feature, result.capturePerfMs);
     const previous = this.previousHeadFeature;

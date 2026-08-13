@@ -21,9 +21,9 @@ async function initialize(): Promise<void> {
       baseOptions: { modelAssetPath: '/mediapipe/face_landmarker.task', delegate: 'CPU' },
       runningMode: 'VIDEO',
       numFaces: 1,
-      minFaceDetectionConfidence: 0.6,
-      minFacePresenceConfidence: 0.6,
-      minTrackingConfidence: 0.6,
+      minFaceDetectionConfidence: 0.5,
+      minFacePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
       outputFaceBlendshapes: false,
       outputFacialTransformationMatrixes: true,
     });

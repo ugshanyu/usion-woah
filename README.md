@@ -11,7 +11,7 @@ This is the standalone game repository. The Usion monorepo contains only the ser
 - Usion provides the authenticated room, invitation flow, targeted WebRTC signaling, and an essential event journal.
 - Verdicts use the camera source-frame timestamp for the head turn and the local threshold-crossing timestamp for the swipe. Network arrival time and inference completion time do not affect the movement window.
 - The guest estimates host clock offset from the lowest-RTT probes. If uncertainty exceeds 50 ms, a round is replayed instead of awarding a point.
-- A valid head turn needs a neutral rearm, two stable samples, and adequate face quality. The discrete swipe must cross its direction threshold inside the WOAH window, and both onsets must be within 180 ms.
+- Calibration never advances on elapsed time: each prompt must be recognized in eight consecutive stable face samples before the next direction appears. A valid in-round head turn needs a neutral rearm, two stable samples, and adequate face quality. The discrete swipe must cross its direction threshold inside the WOAH window, and both onsets must be within 180 ms.
 - Client-side inference is suitable for casual play, not wagered or cheat-proof ranked competition.
 
 ## Data flow
@@ -64,7 +64,7 @@ Production intentionally uses STUN-only direct P2P:
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, and `pointerInput: "swipe"`.
+1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "recognition-driven"`, and `pointerInput: "swipe"`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.

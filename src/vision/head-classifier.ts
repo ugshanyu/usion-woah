@@ -4,6 +4,16 @@ import type { Direction, HeadCalibration, HeadFeature } from '../game/types';
 export type HeadClassification = { direction: Direction; confidence: number; quality: number };
 
 const UNKNOWN: HeadClassification = { direction: 'unknown', confidence: 0, quality: 0 };
+export const MIN_FACE_WIDTH = 0.1;
+export const MAX_FACE_WIDTH = 0.9;
+
+export function isUsableHeadFeature(feature: HeadFeature): boolean {
+  return feature.finite && !feature.clipped && feature.faceWidth >= MIN_FACE_WIDTH && feature.faceWidth <= MAX_FACE_WIDTH;
+}
+
+function angleDistance(left: number, right: number): number {
+  return Math.abs(Math.atan2(Math.sin(left - right), Math.cos(left - right)));
+}
 
 function project(feature: HeadFeature, calibration: HeadCalibration): Vec2 {
   const delta = sub(feature, calibration.neutral);
@@ -46,8 +56,8 @@ export function buildHeadCalibration(prompts: Record<'neutral' | 'left' | 'right
 }
 
 export function classifyHead(feature: HeadFeature, calibration: HeadCalibration, previous: Direction = 'neutral'): HeadClassification {
-  if (!feature.finite || feature.clipped || feature.faceWidth < 0.16 || feature.faceWidth > 0.75) return UNKNOWN;
-  const rollDelta = Math.abs(feature.roll - calibration.neutralRoll);
+  if (!isUsableHeadFeature(feature)) return UNKNOWN;
+  const rollDelta = angleDistance(feature.roll, calibration.neutralRoll);
   if (rollDelta > 15 * Math.PI / 180) return UNKNOWN;
   const projected = project(feature, calibration);
   const scores: Record<'left' | 'right' | 'up' | 'down', number> = {

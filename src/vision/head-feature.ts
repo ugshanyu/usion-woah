@@ -78,7 +78,7 @@ export function extractHeadFeature(matrix: Matrix | undefined, landmarks: FaceLa
     y: angles?.y ?? 0,
     roll: angles?.roll ?? 0,
     faceWidth: maxX - minX,
-    clipped: minX < 0.03 || maxX > 0.97 || minY < 0.03 || maxY > 0.97,
+    clipped: minX < 0.01 || maxX > 0.99 || minY < 0.01 || maxY > 0.99,
     finite: Boolean(angles) && [angles?.x, angles?.y, angles?.roll, maxX - minX].every(Number.isFinite),
   };
 }

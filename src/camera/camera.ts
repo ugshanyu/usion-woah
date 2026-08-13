@@ -16,7 +16,7 @@ export class CameraController {
         video: {
           facingMode: 'user',
           width: { ideal: 640 },
-          height: { ideal: 360 },
+          height: { ideal: 480 },
           frameRate: { ideal: 24, max: 30 },
         },
         audio: false,
