@@ -1,4 +1,4 @@
-import type { Landmark, HeadFeature } from '../game/types';
+import type { FaceLandmark, HeadFeature } from '../game/types';
 
 type Matrix = { rows: number; columns: number; data: number[] };
 type Vec3 = [number, number, number];
@@ -20,7 +20,7 @@ function cross(left: Vec3, right: Vec3): Vec3 {
   ];
 }
 
-function fallbackAngles(landmarks: Landmark[]): { x: number; y: number; roll: number } | null {
+function fallbackAngles(landmarks: FaceLandmark[]): { x: number; y: number; roll: number } | null {
   const leftEye = landmarks[33];
   const rightEye = landmarks[263];
   const nose = landmarks[1];
@@ -62,7 +62,7 @@ function matrixAngles(matrix: Matrix | undefined): { x: number; y: number; roll:
   };
 }
 
-export function extractHeadFeature(matrix: Matrix | undefined, landmarks: Landmark[]): HeadFeature {
+export function extractHeadFeature(matrix: Matrix | undefined, landmarks: FaceLandmark[]): HeadFeature {
   const xs = landmarks.map((landmark) => landmark.x).filter(Number.isFinite);
   const ys = landmarks.map((landmark) => landmark.y).filter(Number.isFinite);
   if (!xs.length || !ys.length) return { x: 0, y: 0, roll: 0, faceWidth: 0, clipped: true, finite: false };

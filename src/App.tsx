@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CameraController, type CameraState } from './camera/camera';
 import { CalibrationOverlay } from './components/CalibrationOverlay';
 import { Scoreboard } from './components/Scoreboard';
+import { SwipePad } from './components/SwipePad';
 import { VideoStage } from './components/VideoStage';
 import { MatchController, type MatchView } from './game/match-controller';
 import { languageFor, translator } from './i18n';
@@ -67,7 +68,6 @@ export default function App() {
     inference.onHeadFeature = (feature) => calibration.acceptHead(feature);
     inference.onSample = (sample) => {
       samples.push(sample);
-      calibration.acceptPose(sample);
       setDirection(sample.direction);
     };
     calibration.onStage = (stage, progress, retry) => {
@@ -195,10 +195,11 @@ export default function App() {
       ) : (
         <>
           {phase === 'play' && roomState && <Scoreboard view={matchView} myId={roomState.myId} peerId={peerId} t={t} />}
-          <VideoStage localRef={localVideo} remoteRef={remoteVideo} showRemote={phase === 'play' && Boolean(peerId)} localLabel={t('you')} remoteLabel={matchView.peerName || t('opponent')} badge={direction !== 'neutral' && direction !== 'unknown' ? direction.toUpperCase() : undefined} />
+          <VideoStage localRef={localVideo} remoteRef={remoteVideo} showRemote={phase === 'play' && Boolean(peerId)} localLabel={t('you')} remoteLabel={matchView.peerName || t('opponent')} badge={(phase === 'calibration' || matchView.role === 'looker') && direction !== 'neutral' && direction !== 'unknown' ? direction.toUpperCase() : undefined} />
           {phase === 'calibration' && <CalibrationOverlay stage={calibrationStage} progress={calibrationProgress} retry={calibrationRetry} t={t} />}
           {phase === 'calibration' && modelStatus === 'loading' && <div className="toast">{t('models')}</div>}
           {modelStatus === 'slow' && <div className="toast warning">{t('slow')}</div>}
+          {phase === 'play' && matchView.phase === 'countdown' && matchView.role === 'pointer' && <SwipePad roundId={matchView.roundId} onSwipe={(gesture) => match.submitSwipe(gesture)} t={t} />}
           {phase === 'play' && <MatchOverlay view={matchView} hasRoom={Boolean(roomState?.roomId)} cue={cue} t={t} />}
         </>
       )}

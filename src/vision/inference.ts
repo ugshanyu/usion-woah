@@ -1,23 +1,18 @@
 import type { DirectionSample, HeadCalibration, HeadFeature } from '../game/types';
 import { classifyHead } from './head-classifier';
 
-type Mode = 'pose' | 'head';
-
 type WorkerResult = {
   type: 'result';
-  mode: Mode;
   frameSeq: number;
   generation: number;
   capturePerfMs: number;
   inferenceMs: number;
-  classification?: { direction: DirectionSample['direction']; confidence: number; quality: number };
-  feature?: HeadFeature;
+  feature: HeadFeature;
 };
 
 export class VisionInference {
   private readonly worker = new Worker(new URL('./vision.worker.ts', import.meta.url));
   private video: HTMLVideoElement | null = null;
-  private mode: Mode = 'pose';
   private generation = 0;
   private frameSeq = 0;
   private busy = false;
@@ -82,18 +77,7 @@ export class VisionInference {
     this.calibration = calibration;
   }
 
-  setMode(mode: Mode): number {
-    if (this.mode !== mode) {
-      this.mode = mode;
-      this.generation += 1;
-      this.previousDirection = 'neutral';
-      this.previousHeadFeature = null;
-    }
-    return this.generation;
-  }
-
-  beginWindow(mode: Mode): number {
-    this.mode = mode;
+  beginWindow(): number {
     this.generation += 1;
     this.previousDirection = 'neutral';
     this.previousHeadFeature = null;
@@ -152,7 +136,7 @@ export class VisionInference {
     this.lastSubmittedAt = capturePerfMs;
     try {
       const frame = await createImageBitmap(video);
-      this.worker.postMessage({ type: 'infer', frame, mode: this.mode, frameSeq: ++this.frameSeq, generation: this.generation, capturePerfMs }, [frame]);
+      this.worker.postMessage({ type: 'infer', frame, frameSeq: ++this.frameSeq, generation: this.generation, capturePerfMs }, [frame]);
     } catch {
       this.busy = false;
     }
@@ -160,7 +144,7 @@ export class VisionInference {
 
   private handleResult(result: WorkerResult): void {
     this.busy = false;
-    if (result.generation !== this.generation || result.mode !== this.mode) return;
+    if (result.generation !== this.generation) return;
     this.inferenceHistory.push(result.inferenceMs);
     if (this.inferenceHistory.length > 30) this.inferenceHistory.shift();
     const sorted = [...this.inferenceHistory].sort((left, right) => left - right);
@@ -170,23 +154,16 @@ export class VisionInference {
       this.onStatus?.('slow');
       return;
     }
-    if (result.mode === 'head' && result.feature) {
-      this.onHeadFeature?.(result.feature, result.capturePerfMs);
-      const previous = this.previousHeadFeature;
-      this.previousHeadFeature = result.feature;
-      if (previous && Math.hypot(result.feature.x - previous.x, result.feature.y - previous.y) > 25 * Math.PI / 180) {
-        this.onSample?.({ ...result, direction: 'unknown', confidence: 0, quality: 0 });
-        return;
-      }
-      const classification = this.calibration ? classifyHead(result.feature, this.calibration, this.previousDirection) : null;
-      if (!classification) return;
-      this.previousDirection = classification.direction;
-      this.onSample?.({ ...result, direction: classification.direction, confidence: classification.confidence, quality: classification.quality });
+    this.onHeadFeature?.(result.feature, result.capturePerfMs);
+    const previous = this.previousHeadFeature;
+    this.previousHeadFeature = result.feature;
+    if (previous && Math.hypot(result.feature.x - previous.x, result.feature.y - previous.y) > 25 * Math.PI / 180) {
+      this.onSample?.({ ...result, direction: 'unknown', confidence: 0, quality: 0 });
       return;
     }
-    if (result.classification) {
-      this.previousDirection = result.classification.direction;
-      this.onSample?.({ ...result, direction: result.classification.direction, confidence: result.classification.confidence, quality: result.classification.quality });
-    }
+    const classification = this.calibration ? classifyHead(result.feature, this.calibration, this.previousDirection) : null;
+    if (!classification) return;
+    this.previousDirection = classification.direction;
+    this.onSample?.({ ...result, direction: classification.direction, confidence: classification.confidence, quality: classification.quality });
   }
 }

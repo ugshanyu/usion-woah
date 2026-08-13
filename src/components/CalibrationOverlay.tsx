@@ -3,7 +3,6 @@ import type { MessageKey } from '../i18n';
 
 const keys: Record<Exclude<CalibrationStage, 'complete'>, MessageKey> = {
   neutral: 'neutral', left: 'left', right: 'right', up: 'up', down: 'down',
-  'point-left': 'pointLeft', 'point-right': 'pointRight', 'point-up': 'pointUp', 'point-down': 'pointDown',
 };
 
 export function CalibrationOverlay({ stage, progress, retry, t }: { stage: CalibrationStage; progress: number; retry: boolean; t: (key: MessageKey) => string }) {
@@ -13,7 +12,7 @@ export function CalibrationOverlay({ stage, progress, retry, t }: { stage: Calib
     <div className="calibration-card" role="status" aria-live="polite">
       <div className="calibration-arrow" aria-hidden="true">{arrow}</div>
       <h2>{t(keys[stage])}</h2>
-      <p>{retry ? t('retryPose') : t('hold')}</p>
+      <p>{retry ? t('retryFace') : t('hold')}</p>
       <div className="progress" aria-hidden="true"><span style={{ transform: `scaleX(${progress})` }} /></div>
     </div>
   );

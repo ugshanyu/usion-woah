@@ -75,6 +75,8 @@ app.get('/health', (_, response) => response.json({
   ok: true,
   iceMode: 'stun-only',
   stunServerCount: stunUrls.length,
+  visionMode: 'face-only',
+  pointerInput: 'swipe',
 }));
 
 app.post('/api/ice', async (request, response) => {

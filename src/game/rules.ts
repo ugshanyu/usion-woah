@@ -1,4 +1,4 @@
-import type { DirectionSample, GestureSummary, Role, RoundResult, Score } from './types';
+import type { DirectionSample, GestureSummary, Role, RoundResult, Score, SwipeGesture } from './types';
 
 const CARDINAL = new Set(['up', 'down', 'left', 'right']);
 
@@ -11,8 +11,8 @@ export type GestureWindow = {
   clockSigmaMs: number;
 };
 
-export function summarizeGesture(samples: DirectionSample[], window: GestureWindow): GestureSummary | null {
-  if (window.clockSigmaMs > 50) return null;
+export function summarizeHeadGesture(samples: DirectionSample[], window: GestureWindow): GestureSummary | null {
+  if (window.role !== 'looker' || window.clockSigmaMs > 50) return null;
   const neutral = samples.filter((sample) => sample.capturePerfMs >= window.targetLocalMs - 300 && sample.capturePerfMs <= window.targetLocalMs - 80 && sample.direction === 'neutral' && sample.quality >= 0.6);
   if (neutral.length < 2) return null;
   const active = samples.filter((sample) => sample.capturePerfMs >= window.targetLocalMs - 80 && sample.capturePerfMs <= window.targetLocalMs + 220 && CARDINAL.has(sample.direction) && sample.confidence >= 0.65 && sample.quality >= 0.6);
@@ -37,6 +37,22 @@ export function summarizeGesture(samples: DirectionSample[], window: GestureWind
     };
   }
   return null;
+}
+
+export function summarizeSwipe(gesture: SwipeGesture | null, window: GestureWindow): GestureSummary | null {
+  if (!gesture || window.role !== 'pointer' || window.clockSigmaMs > 50 || gesture.confidence < 0.75) return null;
+  if (gesture.onsetLocalMs < window.targetLocalMs - 80 || gesture.onsetLocalMs > window.targetLocalMs + 220) return null;
+  return {
+    roundId: window.roundId,
+    role: 'pointer',
+    direction: gesture.direction,
+    onsetHostMs: window.toHostTime(gesture.onsetLocalMs),
+    peakHostMs: window.toHostTime(gesture.peakLocalMs),
+    confidence: gesture.confidence,
+    clockSigmaMs: window.clockSigmaMs,
+    frameSeq: gesture.sequence,
+    generation: window.generation,
+  };
 }
 
 export function judgeRound(roundId: number, pointer: GestureSummary | null, looker: GestureSummary | null): RoundResult {

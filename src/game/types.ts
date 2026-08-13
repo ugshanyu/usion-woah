@@ -1,12 +1,12 @@
 export type Direction = 'up' | 'down' | 'left' | 'right' | 'neutral' | 'unknown';
+export type CardinalDirection = Exclude<Direction, 'neutral' | 'unknown'>;
 
 export type Role = 'pointer' | 'looker';
 
-export type Landmark = {
+export type FaceLandmark = {
   x: number;
   y: number;
   z?: number;
-  visibility?: number;
 };
 
 export type DirectionSample = {
@@ -16,6 +16,14 @@ export type DirectionSample = {
   direction: Direction;
   confidence: number;
   quality: number;
+};
+
+export type SwipeGesture = {
+  direction: CardinalDirection;
+  onsetLocalMs: number;
+  peakLocalMs: number;
+  confidence: number;
+  sequence: number;
 };
 
 export type GestureSummary = {

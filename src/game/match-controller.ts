@@ -7,9 +7,9 @@ import type { UsionRoom } from '../platform/room';
 import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
 import type { MatchView } from './match-view';
-import { judgeRound, scoreRound, summarizeGesture } from './rules';
+import { judgeRound, scoreRound, summarizeHeadGesture, summarizeSwipe } from './rules';
 import { TimerBag } from './timer-bag';
-import type { GestureSummary, Role } from './types';
+import type { GestureSummary, Role, SwipeGesture } from './types';
 
 export type { MatchPhase, MatchView } from './match-view';
 
@@ -28,6 +28,7 @@ export class MatchController {
   private remoteClockReady = false;
   private currentRound: RoundArmEvent | null = null;
   private currentVisionGeneration: number | null = null;
+  private currentSwipe: SwipeGesture | null = null;
   private nextPointerId: string | null = null;
   private view: MatchView = { phase: 'waiting', peerName: null, localReady: false, peerReady: false, role: null, targetLocalMs: null, roundId: 0, score: {}, result: null, rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY };
 
@@ -38,6 +39,16 @@ export class MatchController {
 
   async unlockAudio(): Promise<void> {
     await this.cue.unlock();
+  }
+
+  submitSwipe(gesture: SwipeGesture): boolean {
+    const round = this.currentRound;
+    const room = this.requireRoom();
+    if (!round || !this.clock || room.myId !== round.pointerId || this.currentSwipe) return false;
+    const targetLocalMs = this.clock.hostToLocal(round.targetHostMs);
+    if (this.clock.uncertaintyMs > 50 || gesture.onsetLocalMs < targetLocalMs - 80 || gesture.onsetLocalMs > targetLocalMs + 220) return false;
+    this.currentSwipe = gesture;
+    return true;
   }
 
   async markLocalReady(stream: MediaStream): Promise<void> {
@@ -201,9 +212,10 @@ export class MatchController {
     const room = this.requireRoom();
     if (!this.clock || !this.session || event.hostEpoch !== this.session.hostEpoch || ![event.pointerId, event.lookerId].includes(room.myId) || event.roundId <= this.view.roundId) return;
     this.currentRound = event;
+    this.currentSwipe = null;
     this.observations.clear();
     const role: Role = room.myId === event.pointerId ? 'pointer' : 'looker';
-    this.currentVisionGeneration = this.inference.beginWindow(role === 'pointer' ? 'pose' : 'head');
+    this.currentVisionGeneration = role === 'looker' ? this.inference.beginWindow() : null;
     this.samples.clear();
     const targetLocalMs = this.clock.hostToLocal(event.targetHostMs);
     this.cue.schedule(targetLocalMs);
@@ -215,9 +227,10 @@ export class MatchController {
   private captureObservation(event: RoundArmEvent, role: Role, targetLocalMs: number): void {
     if (!this.clock || !this.session || this.currentRound?.eventId !== event.eventId) return;
     this.emit({ phase: 'judging' });
-    const samples = this.samples.between(targetLocalMs - 350, targetLocalMs + 250)
-      .filter((sample) => sample.generation === this.currentVisionGeneration);
-    const summary = summarizeGesture(samples, { roundId: event.roundId, role, generation: event.generation, targetLocalMs, toHostTime: (time) => this.clock!.localToHost(time), clockSigmaMs: this.clock.uncertaintyMs });
+    const window = { roundId: event.roundId, role, generation: event.generation, targetLocalMs, toHostTime: (time: number) => this.clock!.localToHost(time), clockSigmaMs: this.clock.uncertaintyMs };
+    const summary = role === 'pointer'
+      ? summarizeSwipe(this.currentSwipe, window)
+      : summarizeHeadGesture(this.samples.between(targetLocalMs - 350, targetLocalMs + 250).filter((sample) => sample.generation === this.currentVisionGeneration), window);
     const observation: ObservationEvent = { ns: 'woah.control.v1', kind: 'observation', eventId: crypto.randomUUID(), matchId: this.session.matchId, hostEpoch: this.session.hostEpoch, summary, roundId: event.roundId, generation: event.generation };
     void this.sendEssential(observation);
   }
@@ -244,6 +257,7 @@ export class MatchController {
     if (!this.session || senderId !== this.session.hostId || event.hostEpoch !== this.session.hostEpoch || event.result.roundId !== this.currentRound?.roundId) return;
     this.currentRound = null;
     this.currentVisionGeneration = null;
+    this.currentSwipe = null;
     this.nextPointerId = event.nextPointerId;
     const winner = Object.values(event.score).some((points) => points >= 3);
     this.emit({ phase: winner ? 'gameover' : 'result', score: event.score, result: event.result, targetLocalMs: null });
@@ -287,6 +301,7 @@ export class MatchController {
     this.session = null;
     this.currentRound = null;
     this.currentVisionGeneration = null;
+    this.currentSwipe = null;
     this.remoteClockReady = false;
     this.pendingSignals = [];
   }

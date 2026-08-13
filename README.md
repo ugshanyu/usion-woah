@@ -1,27 +1,28 @@
 # Usion Woah Challenge
 
-A two-player, realtime camera game for Usion. One player points; the other turns their head. If both player-centric directions match on **WOAH**, the pointer scores. A different direction is a dodge. First to three wins.
+A two-player, realtime camera game for Usion. One player swipes a direction on the screen; the other turns their head. If both player-centric directions match on **WOAH**, the swiper scores. A different direction is a dodge. First to three wins.
 
 This is the standalone game repository. The Usion monorepo contains only the service registry entry and the exact web camera-origin delegation—never this game's code, models, or deployment files.
 
 ## Fairness and privacy contract
 
-- Pose and head direction are inferred on each player's device. Landmark samples and camera frames are never sent to Usion.
+- Only face/head direction is inferred on each player's device. Face landmarks and camera frames are never sent to Usion.
 - Camera video uses a direct WebRTC peer connection protected by DTLS-SRTP. V1 is intentionally STUN-only and does not use a media relay.
 - Usion provides the authenticated room, invitation flow, targeted WebRTC signaling, and an essential event journal.
-- Verdicts use the camera source-frame timestamp carried through inference. Network arrival time and inference completion time do not affect the movement window.
+- Verdicts use the camera source-frame timestamp for the head turn and the local threshold-crossing timestamp for the swipe. Network arrival time and inference completion time do not affect the movement window.
 - The guest estimates host clock offset from the lowest-RTT probes. If uncertainty exceeds 50 ms, a round is replayed instead of awarding a point.
-- A valid gesture needs a neutral rearm, two stable samples, adequate landmark quality, and both players' onsets within 180 ms.
+- A valid head turn needs a neutral rearm, two stable samples, and adequate face quality. The discrete swipe must cross its direction threshold inside the WOAH window, and both onsets must be within 180 ms.
 - Client-side inference is suitable for casual play, not wagered or cheat-proof ranked competition.
 
 ## Data flow
 
 ```text
-front camera -> on-device MediaPipe Worker -> direction + source timestamp
-       |                                           |
-       +---- encrypted WebRTC video to peer        +---- compact observation
-                                                            |
-Usion Share/invite -> authenticated room -> signal/control -> host verdict
+front camera -> on-device Face Landmarker -> head direction + source timestamp
+       |                                                   |
+       +---- encrypted WebRTC video to peer                +---- looker observation
+touch swipe -> cardinal threshold + monotonic timestamp -------- pointer observation
+                                                                   |
+Usion Share/invite -> authenticated room -> signal/control ------ host verdict
 ```
 
 The local preview is CSS-mirrored, but inference always receives the raw frame. Left/right labels are the photographed player's anatomical directions.
@@ -35,7 +36,7 @@ npm ci
 npm run dev
 ```
 
-`postinstall` copies the pinned MediaPipe WASM runtime and verifies the SHA-256 of the pinned pose and face model files. The app expects the Usion SDK host handshake; use the Usion development host for a complete room flow.
+`postinstall` copies the pinned MediaPipe WASM runtime and verifies the SHA-256 of the pinned face model file. The app expects the Usion SDK host handshake; use the Usion development host for a complete room flow.
 
 Verification:
 
@@ -63,7 +64,7 @@ Production intentionally uses STUN-only direct P2P:
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true` and `iceMode: "stun-only"`.
+1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, and `pointerInput: "swipe"`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.
@@ -72,20 +73,20 @@ After deployment:
 
 ## Timing protocol
 
-The host schedules each cue at least two seconds into the future in host-monotonic time. The camera Worker may finish later, but the captured source timestamp is retained. Each device submits the first stable gesture after a neutral pre-window. Missing vision, low confidence, stale generations, high clock uncertainty, or a timing gap over 180 ms produces `void`/replay.
+The host schedules each cue at least two seconds into the future in host-monotonic time. The face Worker may finish later, but the captured source timestamp is retained. The pointer submits one cardinal swipe and the looker submits the first stable head turn after a neutral pre-window. Missing vision/input, low confidence, stale generations, high clock uncertainty, or a timing gap over 180 ms produces `void`/replay.
 
 Essential ready/session/round/observation/verdict events are deduplicated and journaled through Usion actions while also using the reliable WebRTC control channel when open. SDP/ICE uses only the targeted `signal` realtime action; raw video and landmarks never use the Usion relay.
 
 ## Real-device release checklist
 
 - iOS and Android production WebViews show the OS camera prompt only after **Enable camera**.
-- Calibration passes with glasses, facial hair/head coverings, varied skin tones and body sizes, portrait and landscape.
+- Face calibration passes with glasses, facial hair/head coverings, varied skin tones, portrait and landscape.
 - Both cameras connect on same Wi-Fi and representative direct-P2P networks; an intentionally incompatible ICE fixture stops before round start.
 - Synthetic 150 ms latency, 60 ms jitter, and 5% signaling/control loss cannot turn an invalid sample into a win/loss.
 - Backgrounding clears samples, camera, calibration, and the active round; foreground requires a new user gesture and calibration.
-- A held point/head pose before the cue is replayed; stale or reordered events cannot produce a second verdict.
+- A held head turn or an early swipe before the cue is replayed; stale or reordered events cannot produce a second verdict.
 - No camera frames, landmarks, tokens, or SDP appear in application logs.
 
 ## Third-party assets
 
-See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md). Models and WASM are pinned and served from this app's own origin; no runtime model CDN is used.
+See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md). The face model and WASM are pinned and served from this app's own origin; no runtime model CDN is used.
