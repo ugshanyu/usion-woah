@@ -24,7 +24,7 @@
 - [x] Focus the looker's camera full-screen with the pointer in a top-right picture-in-picture tile.
 - [x] Add a persistent proportional score bar, explicit turn state, and first-to-three flow.
 - [x] End the visible countdown exactly on WOAH and add procedural music/cue/result sounds.
-- [ ] Add rules, protocol, layout-state, input, and audio tests; build and redeploy to Railway/Usions.
+- [x] Add rules, protocol, layout-state, input, and audio tests; build and redeploy to Railway/Usions.
 - [ ] Test build under latency, jitter, loss, disconnect, and reconnect.
 - [x] Deploy and verify the public iframe URL on Railway.
 - [x] Add only registry and camera-origin integration to `usionthemobile`.
