@@ -15,7 +15,7 @@
 - [x] Remove Pose Landmarker and arm-direction calibration; keep face-only on-device vision.
 - [x] Add timestamped four-direction touch swipe input for the pointer role.
 - [x] Verify Share promotion and two-player synchronized swipe-vs-head verdicts.
-- [ ] Redeploy the face-only swipe build to production and verify it in Usions.
+- [x] Redeploy the face-only swipe build to production and verify it in Usions.
 - [ ] Test build under latency, jitter, loss, disconnect, and reconnect.
 - [x] Deploy and verify the public iframe URL on Railway.
 - [x] Add only registry and camera-origin integration to `usionthemobile`.
