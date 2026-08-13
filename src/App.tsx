@@ -11,6 +11,7 @@ import { VisionInference } from './vision/inference';
 import { SampleBuffer } from './vision/sample-buffer';
 
 type AppPhase = 'boot' | 'intro' | 'calibration' | 'play' | 'error';
+type SetupFailure = 'camera-denied' | 'camera-error' | 'vision-error' | null;
 
 const initialMatch: MatchView = { phase: 'waiting', peerName: null, localReady: false, peerReady: false, role: null, targetLocalMs: null, roundId: 0, score: {}, result: null, rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY };
 
@@ -36,6 +37,7 @@ export default function App() {
   const [calibrationRetry, setCalibrationRetry] = useState(false);
   const [direction, setDirection] = useState('neutral');
   const [error, setError] = useState<string | null>(null);
+  const [setupFailure, setSetupFailure] = useState<SetupFailure>(null);
   const [now, setNow] = useState(() => performance.now());
   const [language, setLanguage] = useState<'en' | 'mn'>('en');
   const t = useMemo(() => translator(language), [language]);
@@ -58,7 +60,10 @@ export default function App() {
       remoteStream.current = stream;
       attachRemoteVideo(remoteVideo.current, stream);
     };
-    inference.onStatus = (status) => setModelStatus(status === 'error' ? 'error' : status);
+    inference.onStatus = (status) => {
+      setModelStatus(status === 'error' ? 'error' : status);
+      if (status === 'error') setSetupFailure('vision-error');
+    };
     inference.onHeadFeature = (feature) => calibration.acceptHead(feature);
     inference.onSample = (sample) => {
       samples.push(sample);
@@ -77,7 +82,8 @@ export default function App() {
     };
     camera.onState = (state, detail) => {
       setCameraState(state);
-      if (state === 'denied' || state === 'error') setError(detail || state);
+      if (state === 'denied') setSetupFailure('camera-denied');
+      if (state === 'error') setSetupFailure('camera-error');
       if (state === 'ended') {
         calibrated.current = false;
         readyRoomId.current = null;
@@ -144,17 +150,28 @@ export default function App() {
       return;
     }
     setError(null);
+    setSetupFailure(null);
     setPhase('calibration');
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     if (!localVideo.current) return;
     try {
       await match.unlockAudio();
-      await inference.initialize();
       await camera.start(localVideo.current);
+      await inference.initialize();
       inference.start(localVideo.current);
       calibration.start();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const failure: Exclude<SetupFailure, null> = camera.state === 'denied'
+        ? 'camera-denied'
+        : camera.state === 'ready'
+          ? 'vision-error'
+          : 'camera-error';
+      setSetupFailure(failure);
+      calibration.cancel();
+      inference.stop();
+      if (failure === 'vision-error') camera.stop();
+      const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+      Usion.log(`Woah startup failed [${failure}]: ${detail.slice(0, 240)}`);
       setPhase('intro');
     }
   }
@@ -172,8 +189,8 @@ export default function App() {
         <section className="intro center">
           <div className="logo-mark">W!</div>
           <h1>{t('title')}</h1><p className="subtitle">{t('subtitle')}</p>
-          <p className="privacy">{error && cameraState !== 'denied' ? t('setupError') : cameraState === 'denied' ? t('cameraDenied') : cameraState === 'ended' ? t('cameraEnded') : t('privacy')}</p>
-          <button className="primary" onClick={() => void startCamera()}>{cameraState === 'denied' || cameraState === 'ended' ? t('retry') : t('start')}</button>
+          <p className="privacy">{setupFailure === 'camera-denied' ? t('cameraDenied') : setupFailure === 'camera-error' ? t('cameraError') : setupFailure === 'vision-error' ? t('visionError') : cameraState === 'ended' ? t('cameraEnded') : t('privacy')}</p>
+          <button className="primary" onClick={() => void startCamera()}>{setupFailure || cameraState === 'ended' ? t('retry') : t('start')}</button>
         </section>
       ) : (
         <>

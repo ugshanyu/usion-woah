@@ -20,27 +20,27 @@ async function initialize(): Promise<void> {
   if (initializing) return initializing;
   initializing = (async () => {
     const wasm = await FilesetResolver.forVisionTasks('/mediapipe/wasm');
-    [pose, face] = await Promise.all([
-      PoseLandmarker.createFromOptions(wasm, {
-        baseOptions: { modelAssetPath: '/mediapipe/pose_landmarker_lite.task', delegate: 'CPU' },
-        runningMode: 'VIDEO',
-        numPoses: 1,
-        minPoseDetectionConfidence: 0.6,
-        minPosePresenceConfidence: 0.6,
-        minTrackingConfidence: 0.6,
-        outputSegmentationMasks: false,
-      }),
-      FaceLandmarker.createFromOptions(wasm, {
-        baseOptions: { modelAssetPath: '/mediapipe/face_landmarker.task', delegate: 'CPU' },
-        runningMode: 'VIDEO',
-        numFaces: 1,
-        minFaceDetectionConfidence: 0.6,
-        minFacePresenceConfidence: 0.6,
-        minTrackingConfidence: 0.6,
-        outputFaceBlendshapes: false,
-        outputFacialTransformationMatrixes: true,
-      }),
-    ]);
+    // Calibration starts with head prompts. Loading sequentially avoids two large
+    // model initializers competing for memory on mobile WebViews.
+    face = await FaceLandmarker.createFromOptions(wasm, {
+      baseOptions: { modelAssetPath: '/mediapipe/face_landmarker.task', delegate: 'CPU' },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.6,
+      minFacePresenceConfidence: 0.6,
+      minTrackingConfidence: 0.6,
+      outputFaceBlendshapes: false,
+      outputFacialTransformationMatrixes: true,
+    });
+    pose = await PoseLandmarker.createFromOptions(wasm, {
+      baseOptions: { modelAssetPath: '/mediapipe/pose_landmarker_lite.task', delegate: 'CPU' },
+      runningMode: 'VIDEO',
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.6,
+      minPosePresenceConfidence: 0.6,
+      minTrackingConfidence: 0.6,
+      outputSegmentationMasks: false,
+    });
   })();
   return initializing;
 }

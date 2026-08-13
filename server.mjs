@@ -23,7 +23,7 @@ app.use((_, response, next) => {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-  response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://usions.com; connect-src 'self' https://usions.com https://mobile.mongolai.mn wss:; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-ancestors https://usions.com https://*.usions.com");
+  response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://usions.com; connect-src 'self' https://usions.com https://mobile.mongolai.mn wss:; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-ancestors https://usions.com https://*.usions.com");
   next();
 });
 

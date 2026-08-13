@@ -2,3 +2,4 @@
 
 - Treat a managed service subscription or payment method as an explicit product decision. Surface the account and billing gate before integrating that provider, and keep provider adapters replaceable behind the authenticated ICE endpoint.
 - Treat NAT traversal reliability as a product tradeoff, not an implicit infrastructure mandate. This product explicitly chose STUN-only direct P2P and accepts that some restrictive networks cannot start a match; preserve that choice unless the owner asks to revisit TURN.
+- Do not treat HTTP health, asset availability, CSP, or Permissions-Policy headers as proof that a camera game works. Before publishing, exercise the real embedded Start gesture through MediaPipe initialization and `getUserMedia`; match a module Worker with MediaPipe's module WASM loader, avoid blocking the camera prompt on full detector prewarm, and surface typed startup errors instead of collapsing vision and camera failures into one message.

@@ -15,7 +15,7 @@ type WorkerResult = {
 };
 
 export class VisionInference {
-  private readonly worker = new Worker(new URL('./vision.worker.ts', import.meta.url), { type: 'module' });
+  private readonly worker = new Worker(new URL('./vision.worker.ts', import.meta.url));
   private video: HTMLVideoElement | null = null;
   private mode: Mode = 'pose';
   private generation = 0;
@@ -31,6 +31,7 @@ export class VisionInference {
   private readyPromise: Promise<void> | null = null;
   private resolveReady: (() => void) | null = null;
   private rejectReady: ((error: Error) => void) | null = null;
+  private readyTimer: number | null = null;
 
   onSample: ((sample: DirectionSample) => void) | null = null;
   onHeadFeature: ((feature: HeadFeature, capturePerfMs: number) => void) | null = null;
@@ -39,6 +40,7 @@ export class VisionInference {
   constructor() {
     this.worker.onmessage = (event: MessageEvent<WorkerResult | { type: 'ready' | 'error' | 'frame-error'; message?: string }>) => {
       if (event.data.type === 'ready') {
+        this.clearReadyTimer();
         this.onStatus?.('ready');
         this.resolveReady?.();
         this.resolveReady = null;
@@ -46,6 +48,7 @@ export class VisionInference {
         return;
       }
       if (event.data.type === 'error') {
+        this.clearReadyTimer();
         this.onStatus?.('error', event.data.message);
         this.rejectReady?.(new Error(event.data.message || 'vision_init_failed'));
         this.resolveReady = null;
@@ -58,6 +61,9 @@ export class VisionInference {
       }
       if (event.data.type === 'result') this.handleResult(event.data);
     };
+    this.worker.onerror = (event) => {
+      this.failInitialization(event.message || 'vision_worker_failed');
+    };
   }
 
   initialize(): Promise<void> {
@@ -67,6 +73,7 @@ export class VisionInference {
       this.resolveReady = resolve;
       this.rejectReady = reject;
     });
+    this.readyTimer = window.setTimeout(() => this.failInitialization('vision_init_timeout'), 30_000);
     this.worker.postMessage({ type: 'init' });
     return this.readyPromise;
   }
@@ -108,7 +115,22 @@ export class VisionInference {
 
   destroy(): void {
     this.stop();
+    this.clearReadyTimer();
     this.worker.terminate();
+  }
+
+  private failInitialization(message: string): void {
+    if (!this.rejectReady) return;
+    this.clearReadyTimer();
+    this.onStatus?.('error', message);
+    this.rejectReady(new Error(message));
+    this.resolveReady = null;
+    this.rejectReady = null;
+  }
+
+  private clearReadyTimer(): void {
+    if (this.readyTimer !== null) window.clearTimeout(this.readyTimer);
+    this.readyTimer = null;
   }
 
   private scheduleFrame(): void {

@@ -9,6 +9,9 @@
 - [x] Implement clock synchronization and host-authoritative beat verdicts.
 - [x] Implement responsive Mongolian/English UI and accessibility states.
 - [x] Add classifier, rules, clock, protocol, and integration tests.
+- [x] Fix the production MediaPipe Worker loader/CSP and request camera permission before model startup.
+- [x] Show distinct camera-permission, camera-device, and movement-detector startup errors.
+- [x] Verify the built Worker boots with the bundled MediaPipe assets before redeploying.
 - [ ] Test build under latency, jitter, loss, disconnect, and reconnect.
 - [x] Deploy and verify the public iframe URL on Railway.
 - [x] Add only registry and camera-origin integration to `usionthemobile`.
