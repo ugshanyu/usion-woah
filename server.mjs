@@ -97,7 +97,13 @@ app.post('/api/ice', async (request, response) => {
   }
 });
 
-app.use(express.static(resolve(root, 'dist'), { maxAge: '1h' }));
+app.use(express.static(resolve(root, 'dist'), {
+  maxAge: '1h',
+  setHeaders(response, path) {
+    if (path.endsWith('.html')) response.setHeader('Cache-Control', 'no-store');
+    else if (path.includes(`${resolve(root, 'dist', 'assets')}`)) response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  },
+}));
 
 const server = app.listen(port, '0.0.0.0', () => console.log(`[WOAH] listening on ${port}`));
 
