@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { judgeRound, summarizeHeadGesture, summarizeSwipe } from './rules';
-import type { Direction, DirectionSample, SwipeGesture } from './types';
+import { judgeRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
+import type { Direction, DirectionChoice, DirectionSample } from './types';
 
 function headSample(at: number, direction: Direction, frameSeq: number): DirectionSample {
   return { capturePerfMs: at, direction, frameSeq, generation: 9, confidence: 0.92, quality: 0.9 };
 }
 
-describe('two-client synchronized swipe vs head flow', () => {
+describe('two-client synchronized direction-button vs head flow', () => {
   it('converts both device clocks to host time before judging a hit', () => {
-    const pointerSwipe: SwipeGesture = { direction: 'right', onsetLocalMs: 1040, peakLocalMs: 1040, confidence: 0.95, sequence: 3 };
-    const pointer = summarizeSwipe(pointerSwipe, {
+    const pointerChoice: DirectionChoice = { direction: 'right', selectedLocalMs: 1040, confidence: 1, sequence: 3 };
+    const pointer = summarizeDirectionChoice(pointerChoice, {
       roundId: 4, role: 'pointer', generation: 9, targetLocalMs: 1000,
       toHostTime: (localMs) => localMs, clockSigmaMs: 12,
     });
@@ -26,8 +26,8 @@ describe('two-client synchronized swipe vs head flow', () => {
     expect(judgeRound(4, pointer, looker)).toMatchObject({ verdict: 'hit', reason: 'same_direction' });
   });
 
-  it('awards a dodge from capture timestamps regardless of message arrival order', () => {
-    const pointer = summarizeSwipe({ direction: 'up', onsetLocalMs: 1080, peakLocalMs: 1080, confidence: 0.95, sequence: 7 }, {
+  it('judges a miss from capture timestamps regardless of message arrival order', () => {
+    const pointer = summarizeDirectionChoice({ direction: 'up', selectedLocalMs: 1080, confidence: 1, sequence: 7 }, {
       roundId: 5, role: 'pointer', generation: 10, targetLocalMs: 1000,
       toHostTime: (localMs) => localMs, clockSigmaMs: 10,
     });

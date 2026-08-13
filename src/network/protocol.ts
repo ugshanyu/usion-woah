@@ -1,4 +1,4 @@
-import type { GestureSummary, RoundResult, Score } from '../game/types';
+import type { GestureSummary, ObservationStatus, RoundResult, Score } from '../game/types';
 
 export type RtcSignal = {
   ns: 'woah.rtc.v1';
@@ -30,6 +30,7 @@ export type SessionEvent = {
   hostEpoch: string;
   hostId: string;
   guestId: string;
+  firstPointerId: string;
 };
 
 export type RoundArmEvent = {
@@ -53,6 +54,7 @@ export type ObservationEvent = {
   matchId: string;
   hostEpoch: string;
   summary: GestureSummary | null;
+  status: ObservationStatus;
   roundId: number;
   generation: number;
 };
@@ -103,12 +105,12 @@ export function isControlEvent(value: unknown): value is ControlEvent {
   const event = value as Record<string, unknown>;
   if (event.ns !== 'woah.control.v1' || !bounded(event.eventId, 100) || !['ready', 'session', 'round', 'observation', 'verdict'].includes(String(event.kind ?? ''))) return false;
   if (event.kind === 'ready') return bounded(event.playerId, 128) && bounded(event.playerName, 100) && event.calibrated === true && event.cameraReady === true;
-  if (event.kind === 'session') return bounded(event.matchId, 128) && bounded(event.hostEpoch, 128) && bounded(event.hostId, 128) && bounded(event.guestId, 128) && event.hostId !== event.guestId;
+  if (event.kind === 'session') return bounded(event.matchId, 128) && bounded(event.hostEpoch, 128) && bounded(event.hostId, 128) && bounded(event.guestId, 128) && bounded(event.firstPointerId, 128) && event.hostId !== event.guestId && (event.firstPointerId === event.hostId || event.firstPointerId === event.guestId);
   if (!bounded(event.matchId, 128) || !bounded(event.hostEpoch, 128)) return false;
   if (event.kind === 'round') {
     return safeCounter(event.roundId) && safeCounter(event.generation) && bounded(event.pointerId, 128) && bounded(event.lookerId, 128) && event.pointerId !== event.lookerId && finiteTime(event.targetHostMs) && finiteTime(event.deadlineHostMs) && event.deadlineHostMs! > event.targetHostMs!;
   }
-  if (event.kind === 'observation') return safeCounter(event.roundId) && safeCounter(event.generation) && (event.summary === null || isGestureSummary(event.summary));
+  if (event.kind === 'observation') return safeCounter(event.roundId) && safeCounter(event.generation) && ['ok', 'missing', 'clock-uncertain'].includes(String(event.status ?? '')) && (event.summary === null || isGestureSummary(event.summary)) && (event.status === 'ok') === (event.summary !== null);
   return isRoundResult(event.result) && isScore(event.score) && bounded(event.nextPointerId, 128);
 }
 
@@ -133,7 +135,7 @@ function isGestureSummary(value: unknown): boolean {
 function isRoundResult(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const result = value as Partial<RoundResult>;
-  return safeCounter(result.roundId) && ['hit', 'dodge', 'void'].includes(result.verdict ?? '') && ['same_direction', 'different_direction', 'invalid_sample', 'timing_mismatch', 'clock_uncertain'].includes(result.reason ?? '') && (result.pointer === null || isGestureSummary(result.pointer)) && (result.looker === null || isGestureSummary(result.looker));
+  return safeCounter(result.roundId) && ['hit', 'dodge', 'penalty', 'void'].includes(result.verdict ?? '') && ['same_direction', 'different_direction', 'pointer_timeout', 'looker_timeout', 'both_timeout', 'invalid_sample', 'timing_mismatch', 'clock_uncertain'].includes(result.reason ?? '') && (result.pointer === null || isGestureSummary(result.pointer)) && (result.looker === null || isGestureSummary(result.looker));
 }
 
 function isScore(value: unknown): value is Score {

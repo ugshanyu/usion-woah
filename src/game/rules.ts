@@ -1,4 +1,4 @@
-import type { DirectionSample, GestureSummary, Role, RoundResult, Score, SwipeGesture } from './types';
+import type { DirectionChoice, DirectionSample, GestureSummary, ObservationStatus, Role, RoundResult, Score } from './types';
 
 const CARDINAL = new Set(['up', 'down', 'left', 'right']);
 
@@ -39,23 +39,32 @@ export function summarizeHeadGesture(samples: DirectionSample[], window: Gesture
   return null;
 }
 
-export function summarizeSwipe(gesture: SwipeGesture | null, window: GestureWindow): GestureSummary | null {
-  if (!gesture || window.role !== 'pointer' || window.clockSigmaMs > 50 || gesture.confidence < 0.75) return null;
-  if (gesture.onsetLocalMs < window.targetLocalMs - 80 || gesture.onsetLocalMs > window.targetLocalMs + 220) return null;
+export function summarizeDirectionChoice(choice: DirectionChoice | null, window: GestureWindow): GestureSummary | null {
+  if (!choice || window.role !== 'pointer' || window.clockSigmaMs > 50 || choice.confidence < 0.75) return null;
+  if (choice.selectedLocalMs < window.targetLocalMs - 80 || choice.selectedLocalMs > window.targetLocalMs + 220) return null;
   return {
     roundId: window.roundId,
     role: 'pointer',
-    direction: gesture.direction,
-    onsetHostMs: window.toHostTime(gesture.onsetLocalMs),
-    peakHostMs: window.toHostTime(gesture.peakLocalMs),
-    confidence: gesture.confidence,
+    direction: choice.direction,
+    onsetHostMs: window.toHostTime(choice.selectedLocalMs),
+    peakHostMs: window.toHostTime(choice.selectedLocalMs),
+    confidence: choice.confidence,
     clockSigmaMs: window.clockSigmaMs,
-    frameSeq: gesture.sequence,
+    frameSeq: choice.sequence,
     generation: window.generation,
   };
 }
 
-export function judgeRound(roundId: number, pointer: GestureSummary | null, looker: GestureSummary | null): RoundResult {
+export function judgeRound(roundId: number, pointer: GestureSummary | null, looker: GestureSummary | null, pointerStatus: ObservationStatus = pointer ? 'ok' : 'missing', lookerStatus: ObservationStatus = looker ? 'ok' : 'missing'): RoundResult {
+  if (pointerStatus === 'clock-uncertain' || lookerStatus === 'clock-uncertain') {
+    return { roundId, verdict: 'void', reason: 'clock_uncertain', pointer, looker };
+  }
+  if (pointerStatus === 'missing' || lookerStatus === 'missing') {
+    const reason = pointerStatus === 'missing' && lookerStatus === 'missing'
+      ? 'both_timeout'
+      : pointerStatus === 'missing' ? 'pointer_timeout' : 'looker_timeout';
+    return { roundId, verdict: 'penalty', reason, pointer, looker };
+  }
   if (!pointer || !looker || pointer.role !== 'pointer' || looker.role !== 'looker') {
     return { roundId, verdict: 'void', reason: 'invalid_sample', pointer, looker };
   }
@@ -79,7 +88,21 @@ export function judgeRound(roundId: number, pointer: GestureSummary | null, look
 }
 
 export function scoreRound(score: Score, result: RoundResult, pointerId: string, lookerId: string): Score {
-  if (result.verdict === 'void') return score;
-  const winnerId = result.verdict === 'hit' ? pointerId : lookerId;
-  return { ...score, [winnerId]: (score[winnerId] ?? 0) + 1 };
+  if (result.verdict === 'hit') return { ...score, [pointerId]: (score[pointerId] ?? 0) + 1 };
+  if (result.verdict !== 'penalty') return { ...score };
+  const next = { ...score };
+  if (result.reason === 'pointer_timeout' || result.reason === 'both_timeout') next[pointerId] = Math.max(0, (next[pointerId] ?? 0) - 1);
+  if (result.reason === 'looker_timeout' || result.reason === 'both_timeout') next[lookerId] = Math.max(0, (next[lookerId] ?? 0) - 1);
+  return next;
+}
+
+export function nextPointerForResult(result: RoundResult, pointerId: string, lookerId: string): string {
+  if (result.verdict === 'hit' || result.verdict === 'void') return pointerId;
+  return lookerId;
+}
+
+export function chooseFirstPointer(playerIds: string[], randomValue: number): string {
+  if (playerIds.length !== 2) throw new Error('two_players_required');
+  const index = Math.abs(Math.trunc(randomValue)) % playerIds.length;
+  return playerIds[index];
 }

@@ -15,3 +15,7 @@ export type MatchView = {
   rtcState: string;
   clockUncertaintyMs: number;
 };
+
+export function focusedCamera(role: Role | null): 'local' | 'remote' {
+  return role === 'pointer' ? 'remote' : 'local';
+}

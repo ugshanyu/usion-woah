@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CameraController, type CameraState } from './camera/camera';
 import { CalibrationOverlay } from './components/CalibrationOverlay';
 import { Scoreboard } from './components/Scoreboard';
-import { SwipePad } from './components/SwipePad';
+import { DirectionPad } from './components/DirectionPad';
 import { VideoStage } from './components/VideoStage';
 import { MatchController, type MatchView } from './game/match-controller';
+import { focusedCamera } from './game/match-view';
 import { languageFor, translator } from './i18n';
 import { UsionRoom, type RoomState } from './platform/room';
 import { CalibrationSession, type CalibrationFeedback, type CalibrationStage } from './vision/calibration';
@@ -140,8 +141,13 @@ export default function App() {
 
   useEffect(() => {
     if (!matchView.targetLocalMs) return;
-    const timer = window.setInterval(() => setNow(performance.now()), 50);
-    return () => window.clearInterval(timer);
+    let frame = 0;
+    const update = () => {
+      setNow(performance.now());
+      frame = requestAnimationFrame(update);
+    };
+    frame = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frame);
   }, [matchView.targetLocalMs]);
 
   async function startCamera() {
@@ -160,6 +166,7 @@ export default function App() {
       await inference.initialize();
       inference.start(localVideo.current);
       calibration.start();
+      match.startSoundtrack();
     } catch (cause) {
       const failure: Exclude<SetupFailure, null> = camera.state === 'denied'
         ? 'camera-denied'
@@ -169,6 +176,7 @@ export default function App() {
       setSetupFailure(failure);
       calibration.cancel();
       inference.stop();
+      match.stopSoundtrack();
       if (failure === 'vision-error') camera.stop();
       const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
       Usion.log(`Woah startup failed [${failure}]: ${detail.slice(0, 240)}`);
@@ -178,7 +186,7 @@ export default function App() {
 
   const peerId = roomState?.roster.find((id) => id !== roomState.myId) ?? null;
   const countdown = matchView.targetLocalMs ? matchView.targetLocalMs - now : null;
-  const cue = countdown === null ? null : countdown <= 120 ? 'WOAH' : countdown <= 1000 ? '1' : countdown <= 2000 ? '2' : '3';
+  const cue = countdown === null ? null : countdown <= 0 ? 'WOAH' : countdown <= 1000 ? '1' : countdown <= 2000 ? '2' : '3';
 
   if (phase === 'boot') return <main className="center"><div className="brand-loader">WOAH</div></main>;
   if (phase === 'error') return <main className="center"><h1>{t('title')}</h1><p>{error}</p><button onClick={() => location.reload()}>{t('retry')}</button></main>;
@@ -195,12 +203,12 @@ export default function App() {
       ) : (
         <>
           {phase === 'play' && roomState && <Scoreboard view={matchView} myId={roomState.myId} peerId={peerId} t={t} />}
-          <VideoStage localRef={localVideo} remoteRef={remoteVideo} showRemote={phase === 'play' && Boolean(peerId)} localLabel={t('you')} remoteLabel={matchView.peerName || t('opponent')} badge={(phase === 'calibration' || matchView.role === 'looker') && direction !== 'neutral' && direction !== 'unknown' ? direction.toUpperCase() : undefined} />
+          <VideoStage localRef={localVideo} remoteRef={remoteVideo} showRemote={phase === 'play' && Boolean(peerId)} focus={focusedCamera(matchView.role)} localLabel={t('you')} remoteLabel={matchView.peerName || t('opponent')} badge={(phase === 'calibration' || matchView.role === 'looker') && direction !== 'neutral' && direction !== 'unknown' ? direction.toUpperCase() : undefined} />
           {phase === 'calibration' && <CalibrationOverlay stage={calibrationStage} progress={calibrationProgress} feedback={calibrationFeedback} t={t} />}
           {phase === 'calibration' && modelStatus === 'loading' && <div className="toast">{t('models')}</div>}
           {modelStatus === 'slow' && <div className="toast warning">{t('slow')}</div>}
-          {phase === 'play' && matchView.phase === 'countdown' && matchView.role === 'pointer' && <SwipePad roundId={matchView.roundId} onSwipe={(gesture) => match.submitSwipe(gesture)} t={t} />}
-          {phase === 'play' && <MatchOverlay view={matchView} hasRoom={Boolean(roomState?.roomId)} cue={cue} t={t} />}
+          {phase === 'play' && matchView.phase === 'countdown' && matchView.role === 'pointer' && <DirectionPad roundId={matchView.roundId} onChoose={(choice) => match.submitDirection(choice)} t={t} />}
+          {phase === 'play' && <MatchOverlay view={matchView} hasRoom={Boolean(roomState?.roomId)} cue={cue} countdown={countdown} t={t} />}
         </>
       )}
       <div className="sr-only" aria-live="assertive">{cue === 'WOAH' ? 'WOAH' : ''}</div>
@@ -208,12 +216,15 @@ export default function App() {
   );
 }
 
-function MatchOverlay({ view, hasRoom, cue, t }: { view: MatchView; hasRoom: boolean; cue: string | null; t: ReturnType<typeof translator> }) {
-  if (view.phase === 'countdown') return <div className={`cue ${cue === 'WOAH' ? 'woah' : ''}`}><strong>{view.role === 'pointer' ? t('pointer') : t('looker')}</strong><span>{cue}</span><p>{view.role === 'pointer' ? t('pointerHint') : t('lookerHint')}</p></div>;
+function MatchOverlay({ view, hasRoom, cue, countdown, t }: { view: MatchView; hasRoom: boolean; cue: string | null; countdown: number | null; t: ReturnType<typeof translator> }) {
+  if (view.phase === 'countdown') {
+    const progress = Math.max(0, Math.min(1, (countdown ?? 0) / 3000));
+    return <div className={`cue ${cue === 'WOAH' ? 'woah' : ''}`}><strong>{view.role === 'pointer' ? t('pointer') : t('looker')}</strong><span>{cue}</span><p>{view.role === 'pointer' ? t('pointerHint') : t('lookerHint')}</p><div className="countdown-track"><i style={{ transform: `scaleX(${progress})` }} /></div></div>;
+  }
   if (view.phase === 'judging') return <div className="status-card">{t('judging')}</div>;
   if (view.phase === 'result' || view.phase === 'gameover') {
     const verdict = view.result?.verdict ?? 'void';
-    return <div className={`result-card ${verdict}`}><h2>{view.phase === 'gameover' ? t('gameover') : t(verdict)}</h2><p>{t(`${verdict}Detail` as 'hitDetail' | 'dodgeDetail' | 'voidDetail')}</p></div>;
+    return <div className={`result-card ${verdict}`}><h2>{view.phase === 'gameover' ? t('gameover') : t(verdict)}</h2><p>{t(`${verdict}Detail` as 'hitDetail' | 'dodgeDetail' | 'penaltyDetail' | 'voidDetail')}</p></div>;
   }
   const key = view.phase === 'connecting' ? 'connecting' : view.phase === 'syncing' ? 'syncing' : view.phase === 'reconnecting' ? 'reconnecting' : view.phase === 'network-error' ? 'networkUnsupported' : !hasRoom ? 'share' : view.peerReady ? 'opponentReady' : 'waiting';
   return <div className="status-card">{t(key)}</div>;

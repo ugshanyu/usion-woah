@@ -18,10 +18,9 @@ export type DirectionSample = {
   quality: number;
 };
 
-export type SwipeGesture = {
+export type DirectionChoice = {
   direction: CardinalDirection;
-  onsetLocalMs: number;
-  peakLocalMs: number;
+  selectedLocalMs: number;
   confidence: number;
   sequence: number;
 };
@@ -57,12 +56,14 @@ export type HeadCalibration = {
   neutralRoll: number;
 };
 
-export type Verdict = 'hit' | 'dodge' | 'void';
+export type Verdict = 'hit' | 'dodge' | 'penalty' | 'void';
+
+export type ObservationStatus = 'ok' | 'missing' | 'clock-uncertain';
 
 export type RoundResult = {
   roundId: number;
   verdict: Verdict;
-  reason: 'same_direction' | 'different_direction' | 'invalid_sample' | 'timing_mismatch' | 'clock_uncertain';
+  reason: 'same_direction' | 'different_direction' | 'pointer_timeout' | 'looker_timeout' | 'both_timeout' | 'invalid_sample' | 'timing_mismatch' | 'clock_uncertain';
   pointer: GestureSummary | null;
   looker: GestureSummary | null;
 };

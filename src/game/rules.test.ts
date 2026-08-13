@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DirectionSample, GestureSummary, SwipeGesture } from './types';
-import { judgeRound, summarizeHeadGesture, summarizeSwipe } from './rules';
+import type { DirectionChoice, DirectionSample, GestureSummary } from './types';
+import { chooseFirstPointer, judgeRound, nextPointerForResult, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
 
 function sample(time: number, direction: DirectionSample['direction'], frameSeq: number): DirectionSample {
   return { frameSeq, generation: 1, capturePerfMs: time, direction, confidence: 0.9, quality: 0.9 };
@@ -25,12 +25,12 @@ describe('round rules', () => {
     expect(judgeRound(1, { ...summary('pointer', 'left'), clockSigmaMs: 51 }, summary('looker', 'right')).verdict).toBe('void');
   });
 
-  it('accepts one timestamped swipe only inside the WOAH window', () => {
-    const swipe: SwipeGesture = { direction: 'left', onsetLocalMs: 1080, peakLocalMs: 1080, confidence: 0.9, sequence: 4 };
+  it('accepts one timestamped direction button only inside the WOAH window', () => {
+    const choice: DirectionChoice = { direction: 'left', selectedLocalMs: 1080, confidence: 1, sequence: 4 };
     const window = { roundId: 1, role: 'pointer' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time + 25, clockSigmaMs: 10 };
-    expect(summarizeSwipe(swipe, window)).toMatchObject({ direction: 'left', onsetHostMs: 1105, frameSeq: 4 });
-    expect(summarizeSwipe({ ...swipe, onsetLocalMs: 1221 }, window)).toBeNull();
-    expect(summarizeSwipe({ ...swipe, onsetLocalMs: 919 }, window)).toBeNull();
+    expect(summarizeDirectionChoice(choice, window)).toMatchObject({ direction: 'left', onsetHostMs: 1105, frameSeq: 4 });
+    expect(summarizeDirectionChoice({ ...choice, selectedLocalMs: 1221 }, window)).toBeNull();
+    expect(summarizeDirectionChoice({ ...choice, selectedLocalMs: 919 }, window)).toBeNull();
   });
 
   it('awards hit for a match and dodge for a different direction', () => {
@@ -41,5 +41,38 @@ describe('round rules', () => {
   it('uses an inclusive 180ms fairness boundary', () => {
     expect(judgeRound(1, summary('pointer', 'up', 1000), summary('looker', 'left', 1180)).verdict).toBe('dodge');
     expect(judgeRound(1, summary('pointer', 'up', 1000), summary('looker', 'left', 1181)).verdict).toBe('void');
+  });
+
+  it('keeps the turn and scores only for a correct guess', () => {
+    const hit = judgeRound(1, summary('pointer', 'up'), summary('looker', 'up'));
+    const miss = judgeRound(2, summary('pointer', 'up'), summary('looker', 'left'));
+    expect(scoreRound({ pointer: 1, looker: 2 }, hit, 'pointer', 'looker')).toEqual({ pointer: 2, looker: 2 });
+    expect(scoreRound({ pointer: 1, looker: 2 }, miss, 'pointer', 'looker')).toEqual({ pointer: 1, looker: 2 });
+    expect(nextPointerForResult(hit, 'pointer', 'looker')).toBe('pointer');
+    expect(nextPointerForResult(miss, 'pointer', 'looker')).toBe('looker');
+  });
+
+  it('penalizes missing movement without allowing negative scores', () => {
+    const pointerTimeout = judgeRound(1, null, summary('looker', 'up'), 'missing', 'ok');
+    const lookerTimeout = judgeRound(2, summary('pointer', 'up'), null, 'ok', 'missing');
+    const bothTimeout = judgeRound(3, null, null, 'missing', 'missing');
+    expect(pointerTimeout).toMatchObject({ verdict: 'penalty', reason: 'pointer_timeout' });
+    expect(lookerTimeout).toMatchObject({ verdict: 'penalty', reason: 'looker_timeout' });
+    expect(scoreRound({ pointer: 0, looker: 2 }, pointerTimeout, 'pointer', 'looker')).toEqual({ pointer: 0, looker: 2 });
+    expect(scoreRound({ pointer: 1, looker: 2 }, lookerTimeout, 'pointer', 'looker')).toEqual({ pointer: 1, looker: 1 });
+    expect(scoreRound({ pointer: 1, looker: 1 }, bothTimeout, 'pointer', 'looker')).toEqual({ pointer: 0, looker: 0 });
+  });
+
+  it('does not penalize a clock-uncertain observation and replays the same turn', () => {
+    const replay = judgeRound(1, null, summary('looker', 'up'), 'clock-uncertain', 'ok');
+    expect(replay).toMatchObject({ verdict: 'void', reason: 'clock_uncertain' });
+    expect(scoreRound({ pointer: 2, looker: 1 }, replay, 'pointer', 'looker')).toEqual({ pointer: 2, looker: 1 });
+    expect(nextPointerForResult(replay, 'pointer', 'looker')).toBe('pointer');
+  });
+
+  it('chooses either player deterministically from the host random value', () => {
+    expect(chooseFirstPointer(['host', 'guest'], 4)).toBe('host');
+    expect(chooseFirstPointer(['host', 'guest'], 5)).toBe('guest');
+    expect(() => chooseFirstPointer(['host'], 1)).toThrow('two_players_required');
   });
 });

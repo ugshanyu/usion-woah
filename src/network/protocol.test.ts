@@ -17,4 +17,13 @@ describe('network protocol guards', () => {
     expect(isControlEvent(event)).toBe(true);
     expect(isControlEvent({ ...event, calibrated: false })).toBe(false);
   });
+
+  it('requires a valid randomized first pointer and explicit observation status', () => {
+    const session = { ns: 'woah.control.v1', kind: 'session', eventId: 'session', matchId: 'm', hostEpoch: 'e', hostId: 'host', guestId: 'guest', firstPointerId: 'guest' };
+    expect(isControlEvent(session)).toBe(true);
+    expect(isControlEvent({ ...session, firstPointerId: 'outsider' })).toBe(false);
+    const observation = { ns: 'woah.control.v1', kind: 'observation', eventId: 'observation', matchId: 'm', hostEpoch: 'e', roundId: 1, generation: 1, summary: null, status: 'missing' };
+    expect(isControlEvent(observation)).toBe(true);
+    expect(isControlEvent({ ...observation, status: 'ok' })).toBe(false);
+  });
 });
