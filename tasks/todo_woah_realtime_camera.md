@@ -18,7 +18,7 @@
 - [x] Redeploy the face-only swipe build to production and verify it in Usions.
 - [x] Make face calibration recognition-driven instead of advancing on a fixed timer.
 - [x] Require stable, correct neutral/left/right/up/down recognition before showing the next prompt.
-- [ ] Improve face acquisition on slower devices and varied framing, then verify and redeploy.
+- [x] Improve face acquisition on slower devices and varied framing, then verify and redeploy.
 - [ ] Test build under latency, jitter, loss, disconnect, and reconnect.
 - [x] Deploy and verify the public iframe URL on Railway.
 - [x] Add only registry and camera-origin integration to `usionthemobile`.
