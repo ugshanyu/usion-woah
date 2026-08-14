@@ -14,14 +14,32 @@ class FakePeer {
   connectionState = 'new';
   remoteDescription: RTCSessionDescriptionInit | null = null;
   localDescription: RTCSessionDescriptionInit | null = null;
-  ontrack = null; onicecandidate = null; onconnectionstatechange = null; ondatachannel = null;
+  ontrack: ((event: unknown) => void) | null = null;
+  onicecandidate: ((event: unknown) => void) | null = null;
+  onconnectionstatechange: (() => void) | null = null;
+  ondatachannel: ((event: unknown) => void) | null = null;
   setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => { this.remoteDescription = description; });
   setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => { this.localDescription = description; });
   createAnswer = vi.fn(async () => ({ type: 'answer' as const, sdp: 'answer' }));
+  createOffer = vi.fn(async () => ({ type: 'offer' as const, sdp: 'offer' }));
   addIceCandidate = vi.fn(async () => undefined);
+  restartIce = vi.fn();
+  channel = new FakeChannel();
   constructor() { FakePeer.latest = this; }
   addTrack() { return {}; }
+  createDataChannel() { return this.channel; }
   close() { this.connectionState = 'closed'; }
+}
+
+class FakeChannel {
+  readyState = 'connecting';
+  bufferedAmount = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  send = vi.fn();
+  close() { this.readyState = 'closed'; }
 }
 
 describe('P2PCamera signaling', () => {
@@ -61,5 +79,37 @@ describe('P2PCamera signaling', () => {
 
     expect(states).toContain('unavailable');
     expect(FakePeer.latest.connectionState).toBe('closed');
+  });
+
+  it('restarts ICE after an established connection fails and cancels the recovery timeout', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('MediaStream', FakeStream);
+    vi.stubGlobal('RTCPeerConnection', FakePeer);
+    const states: string[] = [];
+    const signals: RtcSignal[] = [];
+    const camera = new P2PCamera({
+      myId: 'host', peerId: 'guest', isHost: true, matchId: 'match', hostEpoch: 'epoch',
+      iceServers: [], localStream: new FakeStream() as unknown as MediaStream, sendSignal: (signal) => signals.push(signal),
+    });
+    camera.onState = (state) => states.push(state);
+
+    await camera.start();
+    const peer = FakePeer.latest;
+    peer.connectionState = 'connected';
+    peer.channel.readyState = 'open';
+    peer.onconnectionstatechange?.();
+    peer.channel.onopen?.();
+    peer.connectionState = 'failed';
+    peer.onconnectionstatechange?.();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(peer.restartIce).toHaveBeenCalledOnce();
+    expect(signals.some((signal) => signal.kind === 'offer' && signal.pcGeneration === 1)).toBe(true);
+
+    peer.connectionState = 'connected';
+    peer.onconnectionstatechange?.();
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(states.at(-1)).toBe('connected');
+    expect(states).not.toContain('unavailable');
   });
 });

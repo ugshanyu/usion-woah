@@ -31,6 +31,10 @@ export class MatchController {
   private currentChoice: DirectionChoice | null = null;
   private nextPointerId: string | null = null;
   private nextRoundNotBefore = 0;
+  private platformConnectedOnce = false;
+  private platformRecovering = false;
+  private rtcConnectedOnce = false;
+  private rtcRecovering = false;
   private view: MatchView = { phase: 'waiting', peerName: null, localReady: false, peerReady: false, role: null, targetLocalMs: null, roundId: 0, score: {}, result: null, rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY };
 
   onView: ((view: MatchView) => void) | null = null;
@@ -104,13 +108,21 @@ export class MatchController {
   }
 
   handleConnection(connection: string): void {
-    if (['disconnected', 'rejoining'].includes(connection)) {
+    if (connection === 'connected') {
+      this.platformConnectedOnce = true;
+      return;
+    }
+    if (['disconnected', 'rejoining'].includes(connection) && this.platformConnectedOnce && !this.platformRecovering) {
+      this.platformRecovering = true;
       this.timers.clear();
       this.emit({ phase: 'reconnecting', targetLocalMs: null });
     }
   }
 
   async handleReconnected(): Promise<void> {
+    if (!this.requireRoom().roomId) return;
+    this.platformConnectedOnce = true;
+    this.platformRecovering = false;
     this.resetTransport();
     this.ready.clear();
     this.emit({ phase: 'waiting' });
@@ -157,9 +169,20 @@ export class MatchController {
     p2p.onControl = (message) => this.handleP2PMessage(message);
     p2p.onState = (state) => {
       this.emit({ rtcState: state });
-      if (state === 'channel-open') this.startClockSync();
-      if (state === 'failed') this.emit({ phase: 'reconnecting' });
-      if (state === 'unavailable') this.emit({ phase: 'network-error', targetLocalMs: null });
+      if (state === 'channel-open') {
+        this.rtcConnectedOnce = true;
+        this.rtcRecovering = false;
+        this.startClockSync();
+      } else if (['disconnected', 'failed'].includes(state) && this.rtcConnectedOnce && !this.rtcRecovering) {
+        this.pauseForRtcRecovery();
+      } else if (state === 'connected' && this.rtcRecovering && p2p.connected) {
+        this.rtcRecovering = false;
+        this.clock?.reset();
+        this.startClockSync();
+      } else if (state === 'unavailable') {
+        this.rtcRecovering = false;
+        this.emit({ phase: 'network-error', targetLocalMs: null });
+      }
     };
     await p2p.start();
     for (const signal of this.pendingSignals.splice(0)) await p2p.handleSignal(signal);
@@ -168,6 +191,9 @@ export class MatchController {
   private startClockSync(): void {
     const room = this.requireRoom();
     if (!this.clock || !this.session) return;
+    if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
+    this.clockTimer = null;
+    this.remoteClockReady = false;
     this.emit({ phase: 'syncing' });
     if (room.myId !== this.session.hostId) {
       let sent = 0;
@@ -325,6 +351,23 @@ export class MatchController {
     this.remoteClockReady = false;
     this.nextRoundNotBefore = 0;
     this.pendingSignals = [];
+    this.rtcConnectedOnce = false;
+    this.rtcRecovering = false;
+  }
+
+  private pauseForRtcRecovery(): void {
+    this.rtcRecovering = true;
+    this.timers.clear();
+    if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
+    this.clockTimer = null;
+    if (this.currentRound) this.nextPointerId = this.currentRound.pointerId;
+    this.currentRound = null;
+    this.currentVisionGeneration = null;
+    this.currentChoice = null;
+    this.observations.clear();
+    this.samples.clear();
+    this.remoteClockReady = false;
+    this.emit({ phase: 'reconnecting', targetLocalMs: null });
   }
 
   private emit(update: Partial<MatchView>): void {

@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UsionRoom } from './room';
 
 describe('UsionRoom', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
-  it('registers handlers before init and joins a room assigned by Share', async () => {
+  it('adopts a room assigned by Share and lets the SDK perform the automatic join', async () => {
+    vi.useFakeTimers();
     const callbacks: Record<string, (...args: never[]) => void> = {};
     const connect = vi.fn(async () => undefined);
     const join = vi.fn(async () => ({ player_ids: ['host', 'guest'] }));
@@ -29,10 +33,36 @@ describe('UsionRoom', () => {
     const room = new UsionRoom();
     await room.initialize();
     callbacks.roomAssigned({ roomId: 'room-1' } as never);
-    await vi.waitFor(() => expect(join).toHaveBeenCalledWith('room-1'));
-    expect(connect).toHaveBeenCalledOnce();
+    expect(room.state?.roomId).toBe('room-1');
+    expect(room.state?.connection).toBe('connecting');
+    expect(connect).not.toHaveBeenCalled();
+    expect(join).not.toHaveBeenCalled();
+
+    callbacks.joined({ player_ids: ['host', 'guest'] } as never);
     expect(room.state?.roster).toEqual(['host', 'guest']);
     expect(room.state?.connection).toBe('connected');
+  });
+
+  it('retries a Share auto-join only when the SDK has not joined after the grace period', async () => {
+    vi.useFakeTimers();
+    const callbacks: Record<string, (...args: never[]) => void> = {};
+    const connect = vi.fn(async () => undefined);
+    const join = vi.fn(async () => ({ player_ids: ['host'] }));
+    const handler = (name: string) => (callback: (...args: never[]) => void) => { callbacks[name] = callback; };
+    vi.stubGlobal('Usion', {
+      config: {}, init: async () => ({ userId: 'host', serviceId: 'service' }), getTheme: () => 'dark', getLanguage: () => 'en',
+      getLaunchParams: () => ({ roomId: null, mode: 'single' }), log: vi.fn(), exit: vi.fn(),
+      user: { getId: () => 'host', getName: () => 'Host', getAvatar: () => null, getToken: () => null },
+      game: { connect, join, leave: vi.fn(), realtime: vi.fn(), action: vi.fn(), forfeit: vi.fn(),
+        onRoomAssigned: handler('roomAssigned'), onJoined: handler('joined'), onPlayerJoined: handler('playerJoined'), onPlayerLeft: handler('playerLeft'),
+        onPlayerConnection: handler('playerConnection'), onRealtime: handler('realtime'), onAction: handler('action'), onConnectionState: handler('connection'), onReconnected: handler('reconnected'), onError: handler('error') },
+    });
+    const room = new UsionRoom();
+    await room.initialize();
+    callbacks.roomAssigned({ roomId: 'room-2' } as never);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(connect).toHaveBeenCalledOnce();
+    expect(join).toHaveBeenCalledWith('room-2');
   });
 
   it('reports a departing peer before replacing the roster', async () => {

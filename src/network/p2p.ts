@@ -14,6 +14,7 @@ type P2POptions = {
 export type P2PState = RTCPeerConnectionState | 'channel-open' | 'unavailable';
 
 const CONNECT_TIMEOUT_MS = 15_000;
+const RECOVERY_TIMEOUT_MS = 12_000;
 
 export class P2PCamera {
   private pc: RTCPeerConnection | null = null;
@@ -24,6 +25,7 @@ export class P2PCamera {
   private pendingIce: RTCIceCandidateInit[] = [];
   private disconnectTimer: number | null = null;
   private connectionTimer: number | null = null;
+  private recoveryTimer: number | null = null;
   private readonly options: P2POptions;
 
   remoteStream = new MediaStream();
@@ -106,12 +108,14 @@ export class P2PCamera {
     this.channel = channel;
     channel.onopen = () => {
       this.clearConnectionTimer();
+      this.clearRecoveryTimer();
       this.onState?.('channel-open');
     };
     channel.onmessage = (event) => {
       try { this.onControl?.(JSON.parse(String(event.data))); } catch { /* ignore malformed peer data */ }
     };
-    channel.onerror = () => this.onState?.('failed');
+    channel.onerror = () => this.handleChannelFailure();
+    channel.onclose = () => this.handleChannelFailure();
   }
 
   private sendSignal(kind: RtcSignal['kind'], candidate?: RTCIceCandidateInit, description?: RTCSessionDescriptionInit): void {
@@ -127,26 +131,45 @@ export class P2PCamera {
     const state = this.pc?.connectionState;
     if (!state) return;
     this.onState?.(state);
-    if (this.disconnectTimer !== null) window.clearTimeout(this.disconnectTimer);
-    if ((state === 'failed' || state === 'disconnected') && this.options.isHost) {
-      this.disconnectTimer = window.setTimeout(() => void this.restart(), state === 'failed' ? 0 : 3000);
+    if (this.disconnectTimer !== null) globalThis.clearTimeout(this.disconnectTimer);
+    this.disconnectTimer = null;
+    if (state === 'connected') {
+      this.clearRecoveryTimer();
+      return;
     }
+    if ((state === 'failed' || state === 'disconnected') && this.options.isHost) {
+      this.disconnectTimer = globalThis.setTimeout(() => void this.restart(), state === 'failed' ? 0 : 3000);
+    }
+    if (state === 'failed' || state === 'disconnected') this.armRecoveryTimer();
   }
 
   private async restart(): Promise<void> {
     if (!this.pc || !this.options.isHost) return;
-    this.generation += 1;
-    this.pendingIce = [];
-    this.pc.restartIce();
-    const offer = await this.pc.createOffer({ iceRestart: true });
-    await this.pc.setLocalDescription(offer);
-    this.sendSignal('offer', undefined, this.pc.localDescription ?? offer);
+    try {
+      this.generation += 1;
+      this.pendingIce = [];
+      this.pc.restartIce();
+      const offer = await this.pc.createOffer({ iceRestart: true });
+      await this.pc.setLocalDescription(offer);
+      this.sendSignal('offer', undefined, this.pc.localDescription ?? offer);
+    } catch {
+      this.onState?.('unavailable');
+      this.closePeer();
+    }
   }
 
   private closePeer(): void {
     this.clearConnectionTimer();
-    if (this.disconnectTimer !== null) window.clearTimeout(this.disconnectTimer);
+    this.clearRecoveryTimer();
+    if (this.disconnectTimer !== null) globalThis.clearTimeout(this.disconnectTimer);
     this.disconnectTimer = null;
+    if (this.channel) {
+      this.channel.onopen = null;
+      this.channel.onmessage = null;
+      this.channel.onerror = null;
+      this.channel.onclose = null;
+    }
+    if (this.pc) this.pc.onconnectionstatechange = null;
     try { this.channel?.close(); } catch { /* noop */ }
     try { this.pc?.close(); } catch { /* noop */ }
     this.channel = null;
@@ -158,5 +181,30 @@ export class P2PCamera {
   private clearConnectionTimer(): void {
     if (this.connectionTimer !== null) globalThis.clearTimeout(this.connectionTimer);
     this.connectionTimer = null;
+  }
+
+  private handleChannelFailure(): void {
+    if (!this.pc || this.pc.connectionState === 'closed') return;
+    this.onState?.('failed');
+    this.armRecoveryTimer();
+    if (this.options.isHost) {
+      if (this.disconnectTimer !== null) globalThis.clearTimeout(this.disconnectTimer);
+      this.disconnectTimer = globalThis.setTimeout(() => void this.restart(), 0);
+    }
+  }
+
+  private armRecoveryTimer(): void {
+    if (this.recoveryTimer !== null) return;
+    this.recoveryTimer = globalThis.setTimeout(() => {
+      this.recoveryTimer = null;
+      if (this.connected) return;
+      this.onState?.('unavailable');
+      this.closePeer();
+    }, RECOVERY_TIMEOUT_MS);
+  }
+
+  private clearRecoveryTimer(): void {
+    if (this.recoveryTimer !== null) globalThis.clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
   }
 }

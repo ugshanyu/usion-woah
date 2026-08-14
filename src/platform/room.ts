@@ -12,6 +12,7 @@ export type RoomState = {
 
 export class UsionRoom {
   private assignedRoomId: string | null = null;
+  private assignedRoomFallback: ReturnType<typeof setTimeout> | null = null;
   state: RoomState | null = null;
   onState: ((state: RoomState) => void) | null = null;
   onSignal: ((signal: RtcSignal, senderId: string) => void) | null = null;
@@ -32,7 +33,7 @@ export class UsionRoom {
       roomId: launch.roomId,
       roster: config.playerIds ?? [myId],
       hostId: config.playerIds?.[0] ?? myId,
-      connection: 'disconnected',
+      connection: 'idle',
     };
     this.emit();
     const roomId = launch.roomId || this.assignedRoomId;
@@ -43,6 +44,8 @@ export class UsionRoom {
   async join(roomId: string): Promise<void> {
     if (!this.state) throw new Error('room_not_initialized');
     this.state.roomId = roomId;
+    this.state.connection = 'connecting';
+    this.emit();
     await Usion.game.connect();
     const joined = await Usion.game.join(roomId) as { player_ids?: string[] } | undefined;
     if (joined?.player_ids) this.updateRoster(joined.player_ids);
@@ -67,11 +70,14 @@ export class UsionRoom {
       this.assignedRoomId = roomId;
       if (!this.state) return;
       this.state.roomId = roomId;
+      this.state.connection = 'connecting';
       this.emit();
-      void this.join(roomId).catch((error) => Usion.log(`Woah join failed: ${error instanceof Error ? error.message : String(error)}`));
+      Usion.log(`Woah room assigned: ${roomId}`);
+      this.armAssignedRoomFallback(roomId);
     });
     Usion.game.onJoined((data) => {
       if (!this.state) return;
+      this.clearAssignedRoomFallback();
       if (data.player_ids) this.updateRoster(data.player_ids);
       this.state.connection = 'connected';
       this.emit();
@@ -96,6 +102,7 @@ export class UsionRoom {
     Usion.game.onConnectionState((connection) => {
       if (!this.state) return;
       this.state.connection = connection;
+      if (connection === 'connected') this.clearAssignedRoomFallback();
       this.emit();
     });
     Usion.game.onReconnected(() => this.onReconnected?.());
@@ -109,6 +116,21 @@ export class UsionRoom {
     this.state.roster = clean;
     this.state.hostId = clean[0] ?? this.state.myId;
     this.emit();
+  }
+
+  private armAssignedRoomFallback(roomId: string): void {
+    this.clearAssignedRoomFallback();
+    this.assignedRoomFallback = globalThis.setTimeout(() => {
+      this.assignedRoomFallback = null;
+      if (!this.state || this.state.roomId !== roomId || this.state.connection === 'connected') return;
+      Usion.log(`Woah room auto-join timed out; retrying ${roomId}`);
+      void this.join(roomId).catch((error) => Usion.log(`Woah join retry failed: ${error instanceof Error ? error.message : String(error)}`));
+    }, 12_000);
+  }
+
+  private clearAssignedRoomFallback(): void {
+    if (this.assignedRoomFallback !== null) globalThis.clearTimeout(this.assignedRoomFallback);
+    this.assignedRoomFallback = null;
   }
 
   private emit(): void {
