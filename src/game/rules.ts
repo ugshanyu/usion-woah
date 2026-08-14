@@ -16,10 +16,15 @@ export type GestureWindow = {
 export function summarizeHeadGesture(samples: DirectionSample[], window: GestureWindow): GestureSummary | null {
   if (window.role !== 'looker' || window.clockSigmaMs > 50) return null;
   const currentGeneration = samples.filter((sample) => sample.generation === window.generation);
-  const neutral = currentGeneration.filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_NEUTRAL_START_MS && sample.capturePerfMs <= window.targetLocalMs + HEAD_NEUTRAL_END_MS && sample.direction === 'neutral' && sample.quality >= 0.6);
-  if (neutral.length < 2) return null;
+  const preBeat = currentGeneration
+    .filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_NEUTRAL_START_MS
+      && sample.capturePerfMs <= window.targetLocalMs + HEAD_NEUTRAL_END_MS
+      && (sample.facePresent ?? sample.direction !== 'unknown'))
+    .slice(-3);
+  if (preBeat.length < 2) return null;
   const active = currentGeneration.filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_ACTIVE_START_MS && sample.capturePerfMs <= window.targetLocalMs + HEAD_ACTIVE_END_MS && CARDINAL.has(sample.direction) && sample.quality >= 0.6);
   const candidates = [...CARDINAL].map((direction) => {
+    if (preBeat.filter((sample) => sample.direction !== direction).length < 2) return null;
     const support = active.filter((sample) => sample.direction === direction);
     const pair = support.flatMap((first, index) => support.slice(index + 1).map((second) => [first, second] as const))
       .find(([first, second]) => second.capturePerfMs - first.capturePerfMs <= HEAD_STABLE_MAX_GAP_MS);

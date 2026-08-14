@@ -78,11 +78,15 @@ describe('canonical player-centric head features', () => {
     expect(down.y).toBeLessThan(neutral.y);
   });
 
-  it('classifies real-convention pitch end to end and rejects opposite landmark evidence', () => {
+  it('classifies real-convention pitch end to end while treating opposite landmark evidence as lower confidence', () => {
     const neutral = extractHeadFeature(pitchMatrix(0), landmarks());
     const calibration = buildNeutralHeadCalibration(Array.from({ length: 8 }, () => ({ ...neutral })))!;
-    expect(classifyHead(extractHeadFeature(pitchMatrix(0.2), landmarks(0.5, 0.52)), calibration).direction).toBe('up');
+    const agreed = classifyHead(extractHeadFeature(pitchMatrix(0.2), landmarks(0.5, 0.52)), calibration);
+    const contradicted = classifyHead(extractHeadFeature(pitchMatrix(0.2), landmarks(0.5, 0.58)), calibration);
+    expect(agreed.direction).toBe('up');
     expect(classifyHead(extractHeadFeature(pitchMatrix(-0.2), landmarks(0.5, 0.58)), calibration).direction).toBe('down');
-    expect(classifyHead(extractHeadFeature(pitchMatrix(0.2), landmarks(0.5, 0.58)), calibration).direction).toBe('unknown');
+    expect(contradicted.direction).toBe('up');
+    expect(contradicted.confidence).toBeLessThan(agreed.confidence);
+    expect(contradicted.quality).toBeGreaterThanOrEqual(0.6);
   });
 });

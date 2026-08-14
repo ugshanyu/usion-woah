@@ -42,8 +42,13 @@ describe('automatic neutral head calibration and classification', () => {
     expect(classifyHead(feature(0.3, -0.04, { roll: Math.PI / 4 }), calibration).direction).toBe('unknown');
   });
 
-  it('rejects a matrix direction contradicted by image landmarks', () => {
-    expect(classifyHead(feature(0.08, 0.16, { landmarkY: -0.2 }), calibration).direction).toBe('unknown');
+  it('keeps the 3D matrix direction when the lower-fidelity image landmark proxy disagrees', () => {
+    const agreed = classifyHead(feature(0.08, 0.16), calibration);
+    const contradicted = classifyHead(feature(0.08, 0.16, { landmarkY: -0.2 }), calibration);
+    expect(contradicted.direction).toBe('up');
+    expect(contradicted.confidence).toBeLessThan(agreed.confidence);
+    expect(contradicted.quality).toBeLessThan(agreed.quality);
+    expect(contradicted.quality).toBeGreaterThanOrEqual(0.6);
   });
 
   it('keeps a naturally tilted but valid movement above the round quality gate', () => {

@@ -18,6 +18,27 @@ describe('round rules', () => {
     expect(result?.onsetHostMs).toBe(1140);
   });
 
+  it('accepts a movement after valid pre-beat face frames drift outside the narrow neutral class', () => {
+    const samples = [
+      sample(720, 'unknown', 1, { facePresent: true, quality: 0 }),
+      sample(800, 'unknown', 2, { facePresent: true, quality: 0 }),
+      sample(1040, 'right', 3),
+      sample(1100, 'right', 4),
+    ];
+    const result = summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 });
+    expect(result?.direction).toBe('right');
+  });
+
+  it('does not use missing-face frames to rearm a round', () => {
+    const samples = [
+      sample(720, 'unknown', 1, { facePresent: false, quality: 0 }),
+      sample(800, 'unknown', 2, { facePresent: false, quality: 0 }),
+      sample(1040, 'right', 3),
+      sample(1100, 'right', 4),
+    ];
+    expect(summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 })).toBeNull();
+  });
+
   it('accepts two stable direction frames at the slow-device cadence', () => {
     const samples = [
       sample(500, 'neutral', 1),

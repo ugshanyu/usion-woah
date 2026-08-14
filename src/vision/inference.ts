@@ -1,6 +1,6 @@
 import type { DirectionSample, HeadCalibration, HeadFeature } from '../game/types';
 import { VISION_MAX_INTERVAL_MS, VISION_MIN_INTERVAL_MS, VISION_SLOW_P95_MS } from '../game/timing';
-import { classifyHead } from './head-classifier';
+import { classifyHead, isUsableHeadFeature } from './head-classifier';
 
 function angleDelta(left: number, right: number): number {
   return Math.atan2(Math.sin(left - right), Math.cos(left - right));
@@ -159,18 +159,19 @@ export class VisionInference {
       this.onStatus?.('slow');
     }
     this.onHeadFeature?.(result.feature, result.capturePerfMs);
+    const facePresent = isUsableHeadFeature(result.feature);
     const previous = this.previousHeadFeature;
     this.previousHeadFeature = result.feature;
     if (previous?.finite
       && result.feature.finite
       && (!previous.source || !result.feature.source || previous.source === result.feature.source)
       && Math.hypot(angleDelta(result.feature.x, previous.x), angleDelta(result.feature.y, previous.y)) > 25 * Math.PI / 180) {
-      this.onSample?.({ ...result, direction: 'unknown', confidence: 0, quality: 0 });
+      this.onSample?.({ ...result, facePresent, direction: 'unknown', confidence: 0, quality: 0 });
       return;
     }
     const classification = this.calibration ? classifyHead(result.feature, this.calibration, this.previousDirection) : null;
     if (!classification) return;
     this.previousDirection = classification.direction;
-    this.onSample?.({ ...result, direction: classification.direction, confidence: classification.confidence, quality: classification.quality });
+    this.onSample?.({ ...result, facePresent, direction: classification.direction, confidence: classification.confidence, quality: classification.quality });
   }
 }

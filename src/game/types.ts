@@ -13,6 +13,7 @@ export type DirectionSample = {
   frameSeq: number;
   generation: number;
   capturePerfMs: number;
+  facePresent?: boolean;
   direction: Direction;
   confidence: number;
   quality: number;

@@ -49,7 +49,7 @@ function landmarkAgreement(feature: HeadFeature, calibration: HeadCalibration, d
   if (!Number.isFinite(current) || !Number.isFinite(baseline)) return 0.5;
   const expectedSign = direction === 'right' || direction === 'up' ? 1 : -1;
   const signedEvidence = (current! - baseline!) * expectedSign;
-  if (signedEvidence <= -LANDMARK_CONTRADICTION_THRESHOLD) return -1;
+  if (signedEvidence <= -LANDMARK_CONTRADICTION_THRESHOLD) return 0;
   if (signedEvidence >= LANDMARK_CONTRADICTION_THRESHOLD) return 1;
   return 0.5;
 }
@@ -110,7 +110,6 @@ export function classifyHead(feature: HeadFeature, calibration: HeadCalibration,
   if (runnerUp > winner * 0.65) return UNKNOWN;
   if (orthogonal > absolute * 0.65) return UNKNOWN;
   const agreement = landmarkAgreement(feature, calibration, direction);
-  if (agreement < 0) return UNKNOWN;
   const rollQuality = 1 - rollDelta / (15 * Math.PI / 180);
   const orientationQuality = feature.orientationQuality ?? 1;
   return {
