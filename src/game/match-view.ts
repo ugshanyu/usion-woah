@@ -19,3 +19,14 @@ export type MatchView = {
 export function focusedCamera(role: Role | null): 'local' | 'remote' {
   return role === 'pointer' ? 'remote' : 'local';
 }
+
+const DIRECTION_ARROWS = { up: '↑', down: '↓', left: '←', right: '→' } as const;
+
+export function resultDirectionComparison(result: RoundResult | null): { guess: string; face: string; operator: '=' | '≠' } | null {
+  if (!result?.pointer && !result?.looker) return null;
+  return {
+    guess: result.pointer ? DIRECTION_ARROWS[result.pointer.direction as keyof typeof DIRECTION_ARROWS] ?? '?' : '?',
+    face: result.looker ? DIRECTION_ARROWS[result.looker.direction as keyof typeof DIRECTION_ARROWS] ?? '?' : '?',
+    operator: result.verdict === 'hit' ? '=' : '≠',
+  };
+}

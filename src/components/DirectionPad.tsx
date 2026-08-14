@@ -9,37 +9,35 @@ const controls: Array<{ direction: CardinalDirection; arrow: string; label: Mess
   { direction: 'down', arrow: '↓', label: 'arrowDown', className: 'down' },
 ];
 
-export function DirectionPad({ roundId, onChoose, t }: { roundId: number; onChoose: (choice: DirectionChoice) => boolean; t: (key: MessageKey) => string }) {
+export function DirectionPad({ roundId, expired, onChoose, t }: { roundId: number; expired: boolean; onChoose: (choice: DirectionChoice) => boolean; t: (key: MessageKey) => string }) {
   const sequence = useRef(0);
-  const [accepted, setAccepted] = useState<CardinalDirection | null>(null);
-  const [tooEarlyOrLate, setTooEarlyOrLate] = useState(false);
+  const [selected, setSelected] = useState<CardinalDirection | null>(null);
+  const [accepted, setAccepted] = useState(false);
 
   useEffect(() => {
-    setAccepted(null);
-    setTooEarlyOrLate(false);
+    setSelected(null);
+    setAccepted(false);
   }, [roundId]);
 
   function choose(direction: CardinalDirection): void {
-    if (accepted) return;
+    if (selected || expired) return;
+    setSelected(direction);
     const choice: DirectionChoice = { direction, selectedLocalMs: performance.now(), confidence: 1, sequence: ++sequence.current };
-    if (onChoose(choice)) {
-      setAccepted(direction);
-      setTooEarlyOrLate(false);
-    } else {
-      setTooEarlyOrLate(true);
-    }
+    setAccepted(onChoose(choice));
   }
+
+  const selectedArrow = controls.find((control) => control.direction === selected)?.arrow;
 
   return (
     <section className="direction-control" aria-label={t('directionControl')}>
-      <p aria-live="polite">{accepted ? t('directionLocked') : tooEarlyOrLate ? t('directionTiming') : t('directionHint')}</p>
+      <p aria-live="polite">{accepted ? `${t('directionLocked')} ${selectedArrow}` : selected || expired ? t('directionTiming') : t('directionHint')}</p>
       <div className="direction-grid">
         {controls.map((control) => (
           <button
             key={control.direction}
             type="button"
-            className={`${control.className} ${accepted === control.direction ? 'selected' : ''}`}
-            disabled={Boolean(accepted)}
+            className={`${control.className} ${selected === control.direction ? 'selected' : ''}`}
+            disabled={Boolean(selected) || expired}
             aria-label={t(control.label)}
             onPointerDown={(event) => { event.preventDefault(); choose(control.direction); }}
           >

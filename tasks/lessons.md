@@ -10,3 +10,4 @@
 - A transport's initial `disconnected` value is not evidence of a dropped match. Enter reconnect UI only after that transport has reached `connected`, and leave it deterministically after recovery.
 - `GAME_ROOM_ASSIGNED` already makes the Usion SDK connect and join. The game should adopt the assigned room and wait for `onJoined`; calling `connect()`/`join()` again creates a competing solo-to-multiplayer transition.
 - Platform-room recovery and WebRTC ICE recovery are separate state machines. Pause active round timing for either, but never leave the UI in an indefinite shared “reconnecting” phase after ICE becomes connected again.
+- Do not apply synchronized-gesture timing rules to a precommitted guess. A direction button is chosen once during the countdown and locks immediately; only the defender's camera movement is measured on the WOAH beat, and the guess deadline closes at that beat.

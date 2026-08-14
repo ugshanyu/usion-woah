@@ -18,19 +18,19 @@ describe('round rules', () => {
     expect(result?.onsetHostMs).toBe(1140);
   });
 
-  it('voids held head turns, low clock quality, and mismatched timing', () => {
+  it('voids held head turns and low clock quality', () => {
     const held = [sample(720, 'right', 1), sample(800, 'right', 2), sample(1040, 'right', 3), sample(1100, 'right', 4)];
     expect(summarizeHeadGesture(held, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 })).toBeNull();
-    expect(judgeRound(1, summary('pointer', 'left'), summary('looker', 'right', 1181)).verdict).toBe('void');
     expect(judgeRound(1, { ...summary('pointer', 'left'), clockSigmaMs: 51 }, summary('looker', 'right')).verdict).toBe('void');
   });
 
-  it('accepts one timestamped direction button only inside the WOAH window', () => {
-    const choice: DirectionChoice = { direction: 'left', selectedLocalMs: 1080, confidence: 1, sequence: 4 };
+  it('accepts one timestamped guess during the countdown and closes at WOAH', () => {
+    const choice: DirectionChoice = { direction: 'left', selectedLocalMs: 800, confidence: 1, sequence: 4 };
     const window = { roundId: 1, role: 'pointer' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time + 25, clockSigmaMs: 10 };
-    expect(summarizeDirectionChoice(choice, window)).toMatchObject({ direction: 'left', onsetHostMs: 1105, frameSeq: 4 });
-    expect(summarizeDirectionChoice({ ...choice, selectedLocalMs: 1221 }, window)).toBeNull();
-    expect(summarizeDirectionChoice({ ...choice, selectedLocalMs: 919 }, window)).toBeNull();
+    expect(summarizeDirectionChoice(choice, window)).toMatchObject({ direction: 'left', onsetHostMs: 825, frameSeq: 4 });
+    expect(summarizeDirectionChoice({ ...choice, selectedLocalMs: 1000 }, window)).not.toBeNull();
+    expect(summarizeDirectionChoice({ ...choice, selectedLocalMs: 1001 }, window)).toBeNull();
+    expect(summarizeDirectionChoice({ ...choice, selectedLocalMs: -2501 }, window)).toBeNull();
   });
 
   it('awards hit for a match and dodge for a different direction', () => {
@@ -38,9 +38,9 @@ describe('round rules', () => {
     expect(judgeRound(1, summary('pointer', 'up'), summary('looker', 'left')).verdict).toBe('dodge');
   });
 
-  it('uses an inclusive 180ms fairness boundary', () => {
-    expect(judgeRound(1, summary('pointer', 'up', 1000), summary('looker', 'left', 1180)).verdict).toBe('dodge');
-    expect(judgeRound(1, summary('pointer', 'up', 1000), summary('looker', 'left', 1181)).verdict).toBe('void');
+  it('compares directions without treating an earlier guess as a late camera gesture', () => {
+    expect(judgeRound(1, summary('pointer', 'up', 7000), summary('looker', 'up', 10_000)).verdict).toBe('hit');
+    expect(judgeRound(1, summary('pointer', 'up', 7000), summary('looker', 'left', 10_000)).verdict).toBe('dodge');
   });
 
   it('keeps the turn and scores only for a correct guess', () => {

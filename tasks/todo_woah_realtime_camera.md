@@ -33,6 +33,10 @@
 - [x] Recover the UI and timing state after a bounded P2P ICE restart.
 - [x] Add regressions for solo -> Share auto-join, initial connection state, and P2P recovery.
 - [x] Deploy the reconnect fix and verify the public Railway/Usions build.
+- [x] Treat the pointer button as a pre-WOAH guess, not a synchronized physical gesture.
+- [x] Lock all four buttons after the first accepted guess and close input exactly at WOAH.
+- [x] Show both chosen directions in the verdict so a correct guess is unmistakable.
+- [ ] Add guess-window/verdict regressions, then rebuild and publish the fix.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.

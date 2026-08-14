@@ -90,6 +90,12 @@ button:focus-visible { outline: 3px solid #d9ff3f; outline-offset: 3px; }
 .result-card.penalty { border-color: rgba(255,110,110,.55); }
 .result-card.penalty h2 { color: #ff8d8d; }
 .result-card.void h2 { color: #ffd36a; }
+.gameover-label { width: max-content; margin: -2px auto 6px; padding: 4px 9px; border-radius: 99px; background: rgba(255,255,255,.1); color: #bbb; font-size: 10px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.result-comparison { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 10px 0 12px; }
+.result-comparison span { display: grid; min-width: 72px; gap: 2px; }
+.result-comparison small { color: #888; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+.result-comparison b { color: #f7f7f5; font-size: 42px; line-height: 1; }
+.result-comparison > strong { color: #d9ff3f; font-size: 28px; }
 .toast { position: absolute; z-index: 10; top: max(20px, env(safe-area-inset-top)); left: 50%; width: calc(100% - 32px); max-width: 420px; padding: 11px 15px; border-radius: 14px; background: #f7f7f5; color: #050505; font-size: 13px; font-weight: 750; text-align: center; transform: translateX(-50%); }
 .toast.warning { background: #ffd36a; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }

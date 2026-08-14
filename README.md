@@ -9,9 +9,9 @@ This is the standalone game repository. The Usion monorepo contains only the ser
 - Only face/head direction is inferred on each player's device. Face landmarks and camera frames are never sent to Usion.
 - Camera video uses a direct WebRTC peer connection protected by DTLS-SRTP. V1 is intentionally STUN-only and does not use a media relay.
 - Usion provides the authenticated room, invitation flow, targeted WebRTC signaling, and an essential event journal.
-- Verdicts use the camera source-frame timestamp for the head turn and the monotonic button-press timestamp for the direction choice. Network arrival time and inference completion time do not affect the movement window.
+- Verdicts use the camera source-frame timestamp for the head turn and a monotonic timestamp to enforce the guess deadline. Network arrival time and inference completion time do not affect the movement window.
 - The guest estimates host clock offset from the lowest-RTT probes. If uncertainty exceeds 50 ms, a round is replayed instead of awarding a point.
-- Calibration never advances on elapsed time: each prompt must be recognized in eight consecutive stable face samples before the next direction appears. A valid in-round head turn needs a neutral rearm, two stable samples, and adequate face quality. A direction button must be pressed inside the WOAH window, and both onsets must be within 180 ms.
+- Calibration never advances on elapsed time: each prompt must be recognized in eight consecutive stable face samples before the next direction appears. A valid in-round head turn needs a neutral rearm, two stable samples, and adequate face quality. The guesser chooses exactly one direction during the countdown; that first choice locks immediately and the deadline closes at WOAH.
 - A correct guess adds one point and keeps the guesser's turn. A miss swaps roles without awarding the defender. Missing a timed button/head movement subtracts one point from the inactive player (clamped at zero) and swaps roles. Clock uncertainty causes a score-neutral replay.
 - The looker's camera is the full-screen stage; the guesser's camera remains in the top-right picture-in-picture tile. A persistent proportional score bar and turn banner stay visible.
 - Client-side inference is suitable for casual play, not wagered or cheat-proof ranked competition.
@@ -75,7 +75,7 @@ After deployment:
 
 ## Timing protocol
 
-The host schedules a three-second countdown in host-monotonic time. Procedural music starts only after the camera-start gesture; synchronized 3/2/1 tones lead to the exact zero-time WOAH cue, with result stingers after judging. The face Worker may finish later, but the captured source timestamp is retained. The pointer submits one cardinal button choice and the looker submits the first stable head turn after a neutral pre-window. Missing movement produces the defined score penalty; stale generations, high clock uncertainty, or unfair timing produce a score-neutral replay.
+The host schedules a three-second countdown in host-monotonic time. Procedural music starts only after the camera-start gesture; synchronized 3/2/1 tones lead to the exact zero-time WOAH cue, with result stingers after judging. The face Worker may finish later, but the captured source timestamp is retained. The pointer locks one cardinal guess before the cue; the looker submits the first stable head turn after a neutral pre-window. Missing input produces the defined score penalty; stale generations, high clock uncertainty, or unfair camera timing produce a score-neutral replay.
 
 Essential ready/session/round/observation/verdict events are deduplicated and journaled through Usion actions while also using the reliable WebRTC control channel when open. SDP/ICE uses only the targeted `signal` realtime action; raw video and landmarks never use the Usion relay.
 
@@ -86,7 +86,7 @@ Essential ready/session/round/observation/verdict events are deduplicated and jo
 - Both cameras connect on same Wi-Fi and representative direct-P2P networks; an intentionally incompatible ICE fixture stops before round start.
 - Synthetic 150 ms latency, 60 ms jitter, and 5% signaling/control loss cannot turn an invalid sample into a win/loss.
 - Backgrounding clears samples, camera, calibration, and the active round; foreground requires a new user gesture and calibration.
-- A held head turn or an early button press before the cue is rejected; stale or reordered events cannot produce a second verdict.
+- A held head turn is rejected; the pointer's first countdown choice locks all four buttons, WOAH closes the deadline, and stale or reordered events cannot produce a second verdict.
 - No camera frames, landmarks, tokens, or SDP appear in application logs.
 
 ## Third-party assets

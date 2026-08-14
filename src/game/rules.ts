@@ -1,6 +1,7 @@
 import type { DirectionChoice, DirectionSample, GestureSummary, ObservationStatus, Role, RoundResult, Score } from './types';
 
 const CARDINAL = new Set(['up', 'down', 'left', 'right']);
+export const POINTER_GUESS_LEAD_MS = 3500;
 
 export type GestureWindow = {
   roundId: number;
@@ -41,7 +42,7 @@ export function summarizeHeadGesture(samples: DirectionSample[], window: Gesture
 
 export function summarizeDirectionChoice(choice: DirectionChoice | null, window: GestureWindow): GestureSummary | null {
   if (!choice || window.role !== 'pointer' || window.clockSigmaMs > 50 || choice.confidence < 0.75) return null;
-  if (choice.selectedLocalMs < window.targetLocalMs - 80 || choice.selectedLocalMs > window.targetLocalMs + 220) return null;
+  if (!isDirectionChoiceInWindow(choice, window.targetLocalMs)) return null;
   return {
     roundId: window.roundId,
     role: 'pointer',
@@ -53,6 +54,12 @@ export function summarizeDirectionChoice(choice: DirectionChoice | null, window:
     frameSeq: choice.sequence,
     generation: window.generation,
   };
+}
+
+export function isDirectionChoiceInWindow(choice: DirectionChoice, targetLocalMs: number): boolean {
+  return Number.isFinite(choice.selectedLocalMs)
+    && choice.selectedLocalMs >= targetLocalMs - POINTER_GUESS_LEAD_MS
+    && choice.selectedLocalMs <= targetLocalMs;
 }
 
 export function judgeRound(roundId: number, pointer: GestureSummary | null, looker: GestureSummary | null, pointerStatus: ObservationStatus = pointer ? 'ok' : 'missing', lookerStatus: ObservationStatus = looker ? 'ok' : 'missing'): RoundResult {
@@ -73,9 +80,6 @@ export function judgeRound(roundId: number, pointer: GestureSummary | null, look
   }
   if (pointer.clockSigmaMs > 50 || looker.clockSigmaMs > 50) {
     return { roundId, verdict: 'void', reason: 'clock_uncertain', pointer, looker };
-  }
-  if (Math.abs(pointer.onsetHostMs - looker.onsetHostMs) > 180) {
-    return { roundId, verdict: 'void', reason: 'timing_mismatch', pointer, looker };
   }
   const hit = pointer.direction === looker.direction;
   return {

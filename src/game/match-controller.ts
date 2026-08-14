@@ -7,7 +7,7 @@ import type { UsionRoom } from '../platform/room';
 import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
 import type { MatchView } from './match-view';
-import { chooseFirstPointer, judgeRound, nextPointerForResult, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
+import { chooseFirstPointer, isDirectionChoiceInWindow, judgeRound, nextPointerForResult, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
 import { TimerBag } from './timer-bag';
 import type { DirectionChoice, GestureSummary, ObservationStatus, Role } from './types';
 
@@ -59,7 +59,7 @@ export class MatchController {
     const room = this.requireRoom();
     if (!round || !this.clock || room.myId !== round.pointerId || this.currentChoice) return false;
     const targetLocalMs = this.clock.hostToLocal(round.targetHostMs);
-    if (this.clock.uncertaintyMs > 50 || choice.selectedLocalMs < targetLocalMs - 80 || choice.selectedLocalMs > targetLocalMs + 220) return false;
+    if (this.clock.uncertaintyMs > 50 || !isDirectionChoiceInWindow(choice, targetLocalMs)) return false;
     this.currentChoice = choice;
     return true;
   }
@@ -308,7 +308,7 @@ export class MatchController {
       if (winnerId) void this.room.reportResult(winnerId, event.score, this.session.matchId).catch(() => undefined);
     }
     if (!winner && this.requireRoom().myId === this.session.hostId) {
-      const delay = event.result.verdict === 'void' ? 1000 : 1600;
+      const delay = event.result.verdict === 'void' ? 1200 : 2200;
       this.nextRoundNotBefore = performance.now() + delay;
       this.timers.add(() => void this.scheduleNextRound(), delay);
     }

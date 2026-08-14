@@ -7,8 +7,8 @@ function headSample(at: number, direction: Direction, frameSeq: number): Directi
 }
 
 describe('two-client synchronized direction-button vs head flow', () => {
-  it('converts both device clocks to host time before judging a hit', () => {
-    const pointerChoice: DirectionChoice = { direction: 'right', selectedLocalMs: 1040, confidence: 1, sequence: 3 };
+  it('converts device clocks while keeping a pre-WOAH guess valid for a hit', () => {
+    const pointerChoice: DirectionChoice = { direction: 'right', selectedLocalMs: 600, confidence: 1, sequence: 3 };
     const pointer = summarizeDirectionChoice(pointerChoice, {
       roundId: 4, role: 'pointer', generation: 9, targetLocalMs: 1000,
       toHostTime: (localMs) => localMs, clockSigmaMs: 12,
@@ -21,13 +21,13 @@ describe('two-client synchronized direction-button vs head flow', () => {
       toHostTime: (localMs) => localMs + 200, clockSigmaMs: 14,
     });
 
-    expect(pointer?.onsetHostMs).toBe(1040);
+    expect(pointer?.onsetHostMs).toBe(600);
     expect(looker?.onsetHostMs).toBe(1040);
     expect(judgeRound(4, pointer, looker)).toMatchObject({ verdict: 'hit', reason: 'same_direction' });
   });
 
   it('judges a miss from capture timestamps regardless of message arrival order', () => {
-    const pointer = summarizeDirectionChoice({ direction: 'up', selectedLocalMs: 1080, confidence: 1, sequence: 7 }, {
+    const pointer = summarizeDirectionChoice({ direction: 'up', selectedLocalMs: 700, confidence: 1, sequence: 7 }, {
       roundId: 5, role: 'pointer', generation: 10, targetLocalMs: 1000,
       toHostTime: (localMs) => localMs, clockSigmaMs: 10,
     });

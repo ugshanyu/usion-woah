@@ -3,6 +3,8 @@ import type { UsionRoom } from '../platform/room';
 import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
 import { MatchController, type MatchView } from './match-controller';
+import type { RoundArmEvent } from '../network/protocol';
+import type { DirectionChoice } from './types';
 
 function createMatch() {
   const room = {
@@ -37,5 +39,38 @@ describe('MatchController connection lifecycle', () => {
 
     expect(views).toHaveLength(1);
     expect(views[0].phase).toBe('reconnecting');
+  });
+
+  it('locks the first pre-WOAH guess and rejects later button presses', () => {
+    const match = createMatch();
+    const internals = match as unknown as {
+      currentRound: RoundArmEvent;
+      currentChoice: DirectionChoice | null;
+      clock: { hostToLocal: (time: number) => number; uncertaintyMs: number };
+    };
+    internals.currentRound = {
+      ns: 'woah.control.v1', kind: 'round', eventId: 'round-1', matchId: 'match', hostEpoch: 'epoch',
+      roundId: 1, generation: 1, pointerId: 'host', lookerId: 'guest', targetHostMs: 4000, deadlineHostMs: 4500,
+    };
+    internals.clock = { hostToLocal: (time) => time, uncertaintyMs: 10 };
+
+    expect(match.submitDirection({ direction: 'left', selectedLocalMs: 1500, confidence: 1, sequence: 1 })).toBe(true);
+    expect(match.submitDirection({ direction: 'right', selectedLocalMs: 2000, confidence: 1, sequence: 2 })).toBe(false);
+    expect(internals.currentChoice?.direction).toBe('left');
+  });
+
+  it('rejects a first guess after the WOAH deadline', () => {
+    const match = createMatch();
+    const internals = match as unknown as {
+      currentRound: RoundArmEvent;
+      clock: { hostToLocal: (time: number) => number; uncertaintyMs: number };
+    };
+    internals.currentRound = {
+      ns: 'woah.control.v1', kind: 'round', eventId: 'round-2', matchId: 'match', hostEpoch: 'epoch',
+      roundId: 2, generation: 2, pointerId: 'host', lookerId: 'guest', targetHostMs: 4000, deadlineHostMs: 4500,
+    };
+    internals.clock = { hostToLocal: (time) => time, uncertaintyMs: 10 };
+
+    expect(match.submitDirection({ direction: 'up', selectedLocalMs: 4001, confidence: 1, sequence: 1 })).toBe(false);
   });
 });
