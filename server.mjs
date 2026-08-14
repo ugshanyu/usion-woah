@@ -78,8 +78,9 @@ app.get('/health', (_, response) => response.json({
   visionMode: 'face-only',
   calibrationMode: 'neutral-only',
   pointerInput: 'four-buttons',
-  turnMode: 'hit-keeps-turn',
-  scoreTarget: 3,
+  turnMode: 'fixed-five-round-blocks',
+  roundsPerPointer: 5,
+  totalRounds: 10,
 }));
 
 app.post('/api/ice', async (request, response) => {

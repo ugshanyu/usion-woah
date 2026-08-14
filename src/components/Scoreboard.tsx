@@ -1,4 +1,5 @@
 import type { MatchView } from '../game/match-controller';
+import { TOTAL_ROUNDS } from '../game/match-format';
 import type { MessageKey } from '../i18n';
 
 export function Scoreboard({ view, myId, peerId, t }: { view: MatchView; myId: string; peerId: string | null; t: (key: MessageKey) => string }) {
@@ -11,7 +12,7 @@ export function Scoreboard({ view, myId, peerId, t }: { view: MatchView; myId: s
       <div className={`turn-banner ${view.role ?? ''}`}>{view.role === 'pointer' ? t('yourGuessTurn') : view.role === 'looker' ? t('yourDodgeTurn') : t('preparingTurn')}</div>
       <div className="scoreboard" aria-label={t('firstTo')}>
         <div><span>{t('you')}</span><strong>{myScore}</strong></div>
-        <small>{t('firstTo')}</small>
+        <small>{t('firstTo')} · {Math.min(view.roundId, TOTAL_ROUNDS)}/{TOTAL_ROUNDS}</small>
         <div><span>{view.peerName || t('opponent')}</span><strong>{peerScore}</strong></div>
       </div>
       <div className="score-ratio" aria-hidden="true">

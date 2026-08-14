@@ -5,6 +5,7 @@ import { Scoreboard } from './components/Scoreboard';
 import { DirectionPad } from './components/DirectionPad';
 import { VideoStage } from './components/VideoStage';
 import { MatchController, type MatchView } from './game/match-controller';
+import { matchOutcome } from './game/match-format';
 import { focusedCamera, resultDirectionComparison } from './game/match-view';
 import { HEAD_RECOGNITION_TIMEOUT_MS } from './game/timing';
 import { languageFor, translator } from './i18n';
@@ -210,7 +211,7 @@ export default function App() {
           {phase === 'calibration' && modelStatus === 'loading' && <div className="toast">{t('models')}</div>}
           {modelStatus === 'slow' && <div className="toast warning">{t('slow')}</div>}
           {phase === 'play' && matchView.phase === 'countdown' && matchView.role === 'pointer' && <DirectionPad roundId={matchView.roundId} expired={(countdown ?? 0) <= 0} onChoose={(choice) => match.submitDirection(choice)} t={t} />}
-          {phase === 'play' && <MatchOverlay view={matchView} hasRoom={Boolean(roomState?.roomId)} cue={cue} countdown={countdown} t={t} />}
+          {phase === 'play' && <MatchOverlay view={matchView} hasRoom={Boolean(roomState?.roomId)} cue={cue} countdown={countdown} myId={roomState?.myId ?? null} peerId={peerId} t={t} />}
         </>
       )}
       <div className="sr-only" aria-live="assertive">{cue === 'WOAH' ? 'WOAH' : ''}</div>
@@ -218,7 +219,7 @@ export default function App() {
   );
 }
 
-function MatchOverlay({ view, hasRoom, cue, countdown, t }: { view: MatchView; hasRoom: boolean; cue: string | null; countdown: number | null; t: ReturnType<typeof translator> }) {
+function MatchOverlay({ view, hasRoom, cue, countdown, myId, peerId, t }: { view: MatchView; hasRoom: boolean; cue: string | null; countdown: number | null; myId: string | null; peerId: string | null; t: ReturnType<typeof translator> }) {
   if (view.phase === 'countdown') {
     const progress = Math.max(0, Math.min(1, (countdown ?? 0) / 3000));
     return <div className={`cue ${cue === 'WOAH' ? 'woah' : ''}`}><strong>{view.role === 'pointer' ? t('pointer') : t('looker')}</strong><span>{cue}</span><p>{view.role === 'pointer' ? t('pointerHint') : t('lookerHint')}</p><div className="countdown-track"><i style={{ transform: `scaleX(${progress})` }} /></div></div>;
@@ -230,7 +231,9 @@ function MatchOverlay({ view, hasRoom, cue, countdown, t }: { view: MatchView; h
   if (view.phase === 'result' || view.phase === 'gameover') {
     const verdict = view.result?.verdict ?? 'void';
     const comparison = resultDirectionComparison(view.result);
-    return <div className={`result-card ${verdict}`}><h2>{t(verdict)}</h2>{view.phase === 'gameover' && <div className="gameover-label">{t('gameover')}</div>}{comparison && <div className="result-comparison" aria-label={`${t('guessLabel')} ${comparison.guess}, ${t('faceLabel')} ${comparison.face}`}><span><small>{t('guessLabel')}</small><b>{comparison.guess}</b></span><strong>{comparison.operator}</strong><span><small>{t('faceLabel')}</small><b>{comparison.face}</b></span></div>}<p>{t(`${verdict}Detail` as 'hitDetail' | 'dodgeDetail' | 'penaltyDetail' | 'voidDetail')}</p></div>;
+    const outcome = view.phase === 'gameover' && myId && peerId ? matchOutcome(view.score, myId, peerId) : null;
+    const title = outcome === 'win' ? t('youWin') : outcome === 'lose' ? t('youLose') : outcome === 'draw' ? t('draw') : t(verdict);
+    return <div className={`result-card ${verdict}`}><h2>{title}</h2>{view.phase === 'gameover' && <div className="gameover-label">{t('gameover')}</div>}{comparison && <div className="result-comparison" aria-label={`${t('guessLabel')} ${comparison.guess}, ${t('faceLabel')} ${comparison.face}`}><span><small>{t('guessLabel')}</small><b>{comparison.guess}</b></span><strong>{comparison.operator}</strong><span><small>{t('faceLabel')}</small><b>{comparison.face}</b></span></div>}<p>{t(`${verdict}Detail` as 'hitDetail' | 'dodgeDetail' | 'penaltyDetail' | 'voidDetail')}</p></div>;
   }
   const key = view.phase === 'connecting' ? 'connecting' : view.phase === 'syncing' ? 'syncing' : view.phase === 'reconnecting' ? 'reconnecting' : view.phase === 'network-error' ? 'networkUnsupported' : !hasRoom ? 'share' : view.peerReady ? 'opponentReady' : 'waiting';
   return <div className="status-card">{t(key)}</div>;

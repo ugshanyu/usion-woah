@@ -3,7 +3,7 @@ import type { UsionRoom } from '../platform/room';
 import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
 import { MatchController, type MatchView } from './match-controller';
-import type { ObservationEvent, RoundArmEvent, SessionEvent } from '../network/protocol';
+import type { ObservationEvent, RoundArmEvent, SessionEvent, VerdictEvent } from '../network/protocol';
 import type { DirectionChoice, DirectionSample } from './types';
 
 function createMatch() {
@@ -23,13 +23,14 @@ function directionSample(at: number, direction: DirectionSample['direction'], fr
 
 function createRecognitionMatch() {
   const sendControl = vi.fn().mockResolvedValue(undefined);
+  const reportResult = vi.fn().mockResolvedValue(undefined);
   const room = {
     state: {
       config: { userId: 'host', serviceId: 'service' },
       myId: 'host', myName: 'Host', roomId: 'room', roster: ['host', 'guest'], hostId: 'host', connection: 'connected',
     },
     sendControl,
-    reportResult: vi.fn().mockResolvedValue(undefined),
+    reportResult,
   } as unknown as UsionRoom;
   const inference = { beginWindow: vi.fn(() => 1) } as unknown as VisionInference;
   const samples = new SampleBuffer();
@@ -48,9 +49,10 @@ function createRecognitionMatch() {
     localObservationSent: boolean;
     session: SessionEvent | null;
     clock: { hostToLocal: (time: number) => number; localToHost: (time: number) => number; uncertaintyMs: number } | null;
-    trySendLookerObservation: (event: RoundArmEvent, targetLocalMs: number, timedOut: boolean) => void;
+    trySendLookerObservation: (event: RoundArmEvent, targetLocalMs: number, timedOut: boolean, showJudging?: boolean) => void;
     openObservationWindow: (event: RoundArmEvent, role: 'pointer' | 'looker', targetLocalMs: number) => void;
     acceptObservation: (event: ObservationEvent, senderId: string) => void;
+    acceptVerdict: (event: VerdictEvent, senderId: string) => void;
     finalizeRound: ReturnType<typeof vi.fn>;
     pauseForRtcRecovery: () => void;
   };
@@ -58,7 +60,7 @@ function createRecognitionMatch() {
   internals.currentVisionGeneration = 1;
   internals.session = session;
   internals.clock = { hostToLocal: (time) => time, localToHost: (time) => time, uncertaintyMs: 10 };
-  return { match, samples, sendControl, round, internals };
+  return { match, samples, sendControl, reportResult, round, internals };
 }
 
 describe('MatchController connection lifecycle', () => {
@@ -120,7 +122,7 @@ describe('MatchController connection lifecycle', () => {
 
   it('sends the looker observation immediately when stable post-WOAH evidence arrives', () => {
     const { match, samples, sendControl } = createRecognitionMatch();
-    for (const item of [directionSample(500, 'neutral', 1), directionSample(670, 'neutral', 2), directionSample(1080, 'up', 3)]) {
+    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(1080, 'up', 3)]) {
       samples.push(item);
       match.handleVisionSample(item);
     }
@@ -138,12 +140,29 @@ describe('MatchController connection lifecycle', () => {
     expect(sendControl).toHaveBeenCalledTimes(1);
   });
 
+  it('recognizes from the instant 1 appears without hiding the countdown early', () => {
+    const { match, samples, sendControl } = createRecognitionMatch();
+    const views: MatchView[] = [];
+    match.onView = (view) => views.push(view);
+    for (const item of [
+      directionSample(-500, 'neutral', 1),
+      directionSample(-300, 'neutral', 2),
+      directionSample(0, 'right', 3),
+      directionSample(100, 'right', 4),
+    ]) {
+      samples.push(item);
+      match.handleVisionSample(item);
+    }
+    expect(sendControl.mock.calls[0][0]).toMatchObject({ status: 'ok', summary: { direction: 'right', onsetHostMs: 0 } });
+    expect(views.some((view) => view.phase === 'judging')).toBe(false);
+  });
+
   it('uses the device-local vision generation while stamping the shared round generation', () => {
     const { match, samples, sendControl, internals } = createRecognitionMatch();
     internals.currentVisionGeneration = 7;
     for (const item of [
-      directionSample(500, 'neutral', 1, 7),
-      directionSample(670, 'neutral', 2, 7),
+      directionSample(-500, 'neutral', 1, 7),
+      directionSample(-300, 'neutral', 2, 7),
       directionSample(1080, 'left', 3, 7),
       directionSample(1180, 'left', 4, 7),
     ]) {
@@ -170,15 +189,15 @@ describe('MatchController connection lifecycle', () => {
 
   it('accepts delayed evidence at 3 seconds and times out only after the recognition window', () => {
     const delayed = createRecognitionMatch();
-    for (const item of [directionSample(500, 'neutral', 1), directionSample(670, 'neutral', 2), directionSample(3900, 'right', 3), directionSample(4000, 'right', 4)]) {
+    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(3900, 'right', 3), directionSample(4000, 'right', 4)]) {
       delayed.samples.push(item);
       delayed.match.handleVisionSample(item);
     }
     expect(delayed.sendControl.mock.calls[0][0]).toMatchObject({ status: 'ok', summary: { direction: 'right', onsetHostMs: 3900 } });
 
     const missing = createRecognitionMatch();
-    missing.samples.push(directionSample(500, 'neutral', 1));
-    missing.samples.push(directionSample(670, 'neutral', 2));
+    missing.samples.push(directionSample(-500, 'neutral', 1));
+    missing.samples.push(directionSample(-300, 'neutral', 2));
     missing.internals.trySendLookerObservation(missing.round, 1000, false);
     expect(missing.sendControl).not.toHaveBeenCalled();
     missing.internals.trySendLookerObservation(missing.round, 1000, true);
@@ -189,7 +208,7 @@ describe('MatchController connection lifecycle', () => {
     const { match, samples, internals, round } = createRecognitionMatch();
     const finalize = vi.fn();
     internals.finalizeRound = finalize;
-    for (const item of [directionSample(500, 'neutral', 1), directionSample(670, 'neutral', 2), directionSample(1100, 'left', 3), directionSample(1200, 'left', 4)]) {
+    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(1100, 'left', 3), directionSample(1200, 'left', 4)]) {
       samples.push(item);
       match.handleVisionSample(item);
     }
@@ -211,4 +230,33 @@ describe('MatchController connection lifecycle', () => {
     match.handleVisionSample(item);
     expect(sendControl).not.toHaveBeenCalled();
   });
+
+  it('continues after reaching three points before round ten', () => {
+    vi.stubGlobal('window', { setTimeout: vi.fn(() => 1), clearTimeout: vi.fn() });
+    const { match, reportResult, round, internals } = createRecognitionMatch();
+    const views: MatchView[] = [];
+    match.onView = (view) => views.push(view);
+    round.roundId = 4;
+    internals.acceptVerdict(verdictForRound(4, { host: 3, guest: 0 }, 'guest'), 'host');
+    expect(views.at(-1)?.phase).toBe('result');
+    expect(reportResult).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('ends exactly on round ten and reports a draw', () => {
+    const { match, reportResult, round, internals } = createRecognitionMatch();
+    const views: MatchView[] = [];
+    match.onView = (view) => views.push(view);
+    round.roundId = 10;
+    internals.acceptVerdict(verdictForRound(10, { host: 3, guest: 3 }, 'host'), 'host');
+    expect(views.at(-1)?.phase).toBe('gameover');
+    expect(reportResult).toHaveBeenCalledWith(null, { host: 3, guest: 3 }, 'match');
+  });
 });
+
+function verdictForRound(roundId: number, score: Record<string, number>, nextPointerId: string): VerdictEvent {
+  return {
+    ns: 'woah.control.v1', kind: 'verdict', eventId: `verdict-${roundId}`, matchId: 'match', hostEpoch: 'epoch', nextPointerId, score,
+    result: { roundId, verdict: 'dodge', reason: 'different_direction', pointer: null, looker: null },
+  };
+}

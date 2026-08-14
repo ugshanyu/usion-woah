@@ -3,9 +3,11 @@ export const VISION_MAX_INTERVAL_MS = 160;
 export const VISION_SLOW_P95_MS = 160;
 
 // All offsets are relative to the capture-time WOAH beat.
-export const HEAD_NEUTRAL_START_MS = -600;
-export const HEAD_NEUTRAL_END_MS = -100;
-export const HEAD_ACTIVE_START_MS = 0;
+// Rearm before the visible "1" so a held pose cannot become a fresh gesture.
+export const HEAD_NEUTRAL_START_MS = -1600;
+export const HEAD_NEUTRAL_END_MS = -1100;
+// The visible "1" begins one second before WOAH. Recognition opens with it.
+export const HEAD_ACTIVE_START_MS = -1000;
 export const HEAD_ACTIVE_END_MS = 3000;
 
 // The detector may intentionally sample every 160 ms on a slower phone.
@@ -13,8 +15,8 @@ export const HEAD_ACTIVE_END_MS = 3000;
 export const HEAD_STABLE_MAX_GAP_MS = VISION_MAX_INTERVAL_MS + 80;
 export const HEAD_PEAK_WINDOW_MS = 180;
 
-// WOAH opens a three-second reaction window. The first stable direction wins.
-// The drain lets a frame captured at the 5 s boundary finish on a slow device;
+// The visible "1" opens recognition and WOAH leaves three more seconds. The
+// first stable direction wins. The drain lets the final captured frame finish;
 // capture timestamps after HEAD_ACTIVE_END_MS are still rejected by the rules.
 export const HEAD_RECOGNITION_TIMEOUT_MS = HEAD_ACTIVE_END_MS;
 export const HEAD_INFERENCE_DRAIN_MS = VISION_MAX_INTERVAL_MS * 2;

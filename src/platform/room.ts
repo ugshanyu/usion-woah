@@ -61,8 +61,8 @@ export class UsionRoom {
     await Usion.game.action(`woah_${event.kind}`, event);
   }
 
-  async reportResult(winnerId: string, scores: Record<string, number>, matchId: string): Promise<void> {
-    if (Usion.game.reportResult) await Usion.game.reportResult({ winnerId, scores, matchId });
+  async reportResult(winnerId: string | null, scores: Record<string, number>, matchId: string): Promise<void> {
+    if (Usion.game.reportResult) await Usion.game.reportResult({ winnerId: winnerId ?? undefined, draw: winnerId === null, scores, matchId });
   }
 
   private registerHandlers(): void {

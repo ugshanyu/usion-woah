@@ -1,6 +1,6 @@
 # Usion Woah Challenge
 
-A two-player, realtime camera game for Usion. One player presses one of four direction buttons; the other turns their head. If both player-centric directions match on **WOAH**, the guesser scores and keeps the turn. A miss swaps roles. The first player is selected randomly and the first to three wins.
+A two-player, realtime camera game for Usion. One player presses one of four direction buttons; the other turns their head. If both player-centric directions match, the guesser scores. The first player is selected randomly, guesses for rounds 1–5, then the other player guesses for rounds 6–10. The higher score after all ten rounds wins; equal scores are a draw.
 
 This is the standalone game repository. The Usion monorepo contains only the service registry entry and the exact web camera-origin delegation—never this game's code, models, or deployment files.
 
@@ -11,8 +11,8 @@ This is the standalone game repository. The Usion monorepo contains only the ser
 - Usion provides the authenticated room, invitation flow, targeted WebRTC signaling, and an essential event journal.
 - Verdicts use the camera source-frame timestamp for the head turn and a monotonic timestamp to enforce the guess deadline. Network arrival time and inference completion time do not affect the movement window.
 - The guest estimates host clock offset from the lowest-RTT probes. If uncertainty exceeds 50 ms, a round is replayed instead of awarding a point.
-- Startup calibration asks only for a centered, forward-facing head and completes after eight stable face samples. No left/right/up/down demonstration is required. Runtime directions use canonical player-centric yaw/pitch relative to that neutral baseline. A valid in-round head turn still needs a neutral rearm, two stable samples, and adequate face quality. The guesser chooses exactly one direction during the countdown; that first choice locks immediately and the deadline closes at WOAH.
-- A correct guess adds one point and keeps the guesser's turn. A miss swaps roles without awarding the defender. Missing a timed button/head movement subtracts one point from the inactive player (clamped at zero) and swaps roles. Clock uncertainty causes a score-neutral replay.
+- Startup calibration asks only for a centered, forward-facing head and completes after eight stable face samples. No left/right/up/down demonstration is required. Runtime directions use canonical player-centric yaw/pitch relative to that neutral baseline. A valid in-round head turn still needs a neutral rearm, two stable samples, and adequate face quality. Head recognition opens when `1` appears and remains open through three seconds after WOAH. The guesser chooses exactly one direction during the countdown; that first choice locks immediately and the deadline closes at WOAH.
+- A correct guess adds one point. Roles remain fixed for five rounds, then swap once for the final five. Missing a timed button/head movement subtracts one point from that player (clamped at zero). Clock uncertainty causes a score-neutral replay.
 - The looker's camera is the full-screen stage; the guesser's camera remains in the top-right picture-in-picture tile. A persistent proportional score bar and turn banner stay visible.
 - Client-side inference is suitable for casual play, not wagered or cheat-proof ranked competition.
 
@@ -66,7 +66,7 @@ Production intentionally uses STUN-only direct P2P:
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `pointerInput: "four-buttons"`, `turnMode: "hit-keeps-turn"`, and `scoreTarget: 3`.
+1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `pointerInput: "four-buttons"`, `turnMode: "fixed-five-round-blocks"`, `roundsPerPointer: 5`, and `totalRounds: 10`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.
@@ -75,9 +75,9 @@ After deployment:
 
 ## Timing protocol
 
-The host schedules a three-second countdown in host-monotonic time. Procedural music starts only after the camera-start gesture; synchronized 3/2/1 tones lead to the exact zero-time WOAH cue, with result stingers after judging. The face Worker may finish later, but the captured source timestamp is retained. The pointer locks one cardinal guess before the cue; the looker submits the first stable head turn after a neutral pre-window. Missing input produces the defined score penalty; stale generations, high clock uncertainty, or unfair camera timing produce a score-neutral replay.
+The host schedules a three-second countdown in host-monotonic time. Procedural music starts only after the camera-start gesture; synchronized 3/2/1 tones lead to the exact zero-time WOAH cue, with result stingers after judging. The face Worker may finish later, but the captured source timestamp is retained. The pointer locks one cardinal guess before the cue; the looker submits the first stable head turn beginning at `1`. Missing input produces the defined score penalty; stale generations, high clock uncertainty, or unfair camera timing produce a score-neutral replay.
 
-Face inference runs continuously after calibration with one frame in flight and an adaptive 50-160 ms target interval. For each WOAH beat `T`, neutral rearm evidence is read from `T-600` through `T-100` ms and cardinal head-direction evidence from `T-100` through `T+360` ms. The winning direction needs two matching classified frames no more than 240 ms apart. The observation is summarized at `T+600` ms so a slow Worker's last source frame can finish without changing its capture timestamp; the host then allows 250 ms for the peer observation before finalizing.
+Face inference runs continuously after calibration with one frame in flight and an adaptive 50-160 ms target interval. For each WOAH beat `T`, neutral rearm evidence is read from `T-1600` through `T-1100` ms and cardinal head-direction evidence from `T-1000` (the visible `1`) through `T+3000` ms. The winning direction needs two matching classified frames no more than 240 ms apart. A slow Worker gets a 320 ms inference drain without changing the captured source timestamp; the host then allows 250 ms for the peer observation before finalizing.
 
 Essential ready/session/round/observation/verdict events are deduplicated and journaled through Usion actions while also using the reliable WebRTC control channel when open. SDP/ICE uses only the targeted `signal` realtime action; raw video and landmarks never use the Usion relay.
 

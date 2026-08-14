@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DirectionChoice, DirectionSample, GestureSummary } from './types';
-import { chooseFirstPointer, judgeRound, nextPointerForResult, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
+import { chooseFirstPointer, judgeRound, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
 
 function sample(time: number, direction: DirectionSample['direction'], frameSeq: number, overrides: Partial<DirectionSample> = {}): DirectionSample {
   return { frameSeq, generation: 1, capturePerfMs: time, direction, confidence: 0.9, quality: 0.9, ...overrides };
@@ -12,7 +12,7 @@ function summary(role: GestureSummary['role'], direction: GestureSummary['direct
 
 describe('round rules', () => {
   it('requires neutral rearm and uses source capture timestamps', () => {
-    const samples = [sample(720, 'neutral', 1), sample(800, 'neutral', 2), sample(1040, 'right', 3), sample(1100, 'right', 4)];
+    const samples = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2), sample(1040, 'right', 3), sample(1100, 'right', 4)];
     const result = summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time + 100, clockSigmaMs: 10 });
     expect(result?.direction).toBe('right');
     expect(result?.onsetHostMs).toBe(1140);
@@ -20,8 +20,8 @@ describe('round rules', () => {
 
   it('accepts a movement after valid pre-beat face frames drift outside the narrow neutral class', () => {
     const samples = [
-      sample(720, 'unknown', 1, { facePresent: true, quality: 0 }),
-      sample(800, 'unknown', 2, { facePresent: true, quality: 0 }),
+      sample(-500, 'unknown', 1, { facePresent: true, quality: 0 }),
+      sample(-300, 'unknown', 2, { facePresent: true, quality: 0 }),
       sample(1040, 'right', 3),
       sample(1100, 'right', 4),
     ];
@@ -31,8 +31,8 @@ describe('round rules', () => {
 
   it('reads local vision samples independently from the shared protocol generation', () => {
     const samples = [
-      sample(720, 'neutral', 1, { generation: 7 }),
-      sample(800, 'neutral', 2, { generation: 7 }),
+      sample(-500, 'neutral', 1, { generation: 7 }),
+      sample(-300, 'neutral', 2, { generation: 7 }),
       sample(1040, 'down', 3, { generation: 7 }),
       sample(1100, 'down', 4, { generation: 7 }),
     ];
@@ -50,8 +50,8 @@ describe('round rules', () => {
 
   it('does not use missing-face frames to rearm a round', () => {
     const samples = [
-      sample(720, 'unknown', 1, { facePresent: false, quality: 0 }),
-      sample(800, 'unknown', 2, { facePresent: false, quality: 0 }),
+      sample(-500, 'unknown', 1, { facePresent: false, quality: 0 }),
+      sample(-300, 'unknown', 2, { facePresent: false, quality: 0 }),
       sample(1040, 'right', 3),
       sample(1100, 'right', 4),
     ];
@@ -60,8 +60,8 @@ describe('round rules', () => {
 
   it('accepts two stable direction frames at the slow-device cadence', () => {
     const samples = [
-      sample(500, 'neutral', 1),
-      sample(670, 'neutral', 2),
+      sample(-500, 'neutral', 1),
+      sample(-300, 'neutral', 2),
       sample(1080, 'right', 3, { confidence: 0.32 }),
       sample(1280, 'right', 4, { confidence: 0.34 }),
     ];
@@ -70,24 +70,24 @@ describe('round rules', () => {
     expect(judgeRound(1, summary('pointer', 'right'), result).verdict).toBe('hit');
   });
 
-  it('rejects direction frames outside the supported stability gap or 0–3 second post-WOAH window', () => {
-    const neutral = [sample(500, 'neutral', 1), sample(670, 'neutral', 2)];
+  it('rejects direction frames outside the supported stability gap or 1-before through 3-after WOAH window', () => {
+    const neutral = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2)];
     const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
     expect(summarizeHeadGesture([...neutral, sample(1000, 'up', 3), sample(1241, 'up', 4)], window)).toBeNull();
-    expect(summarizeHeadGesture([...neutral, sample(900, 'up', 3), sample(950, 'up', 4)], window)).toBeNull();
+    expect(summarizeHeadGesture([...neutral, sample(-1, 'up', 3), sample(50, 'up', 4)], window)).toBeNull();
     expect(summarizeHeadGesture([...neutral, sample(3900, 'up', 3), sample(4001, 'up', 4)], window)).toBeNull();
   });
 
-  it('accepts stable face evidence immediately or at the exact 3 second boundary', () => {
-    const neutral = [sample(500, 'neutral', 1), sample(670, 'neutral', 2)];
+  it('accepts stable face evidence when 1 appears or at the exact 3 second boundary', () => {
+    const neutral = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2)];
     const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
-    expect(summarizeHeadGesture([...neutral, sample(1000, 'left', 3), sample(1080, 'left', 4)], window)?.direction).toBe('left');
+    expect(summarizeHeadGesture([...neutral, sample(0, 'left', 3), sample(80, 'left', 4)], window)?.direction).toBe('left');
     expect(summarizeHeadGesture([...neutral, sample(3900, 'down', 5), sample(4000, 'down', 6)], window)?.direction).toBe('down');
   });
 
   it('locks the first stable direction instead of a stronger later direction', () => {
     const samples = [
-      sample(500, 'neutral', 1), sample(670, 'neutral', 2),
+      sample(-500, 'neutral', 1), sample(-300, 'neutral', 2),
       sample(1020, 'right', 3, { confidence: 0.25 }), sample(1080, 'right', 4, { confidence: 0.25 }),
       sample(1140, 'up', 5, { confidence: 0.7 }), sample(1240, 'up', 6, { confidence: 0.8 }), sample(1340, 'up', 7, { confidence: 0.85 }),
     ];
@@ -97,10 +97,10 @@ describe('round rules', () => {
 
   it('locks the earliest competing direction and rejects stale vision generations', () => {
     const window = { roundId: 1, role: 'looker' as const, generation: 2, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
-    const stale = [sample(500, 'neutral', 1), sample(670, 'neutral', 2), sample(1040, 'left', 3), sample(1120, 'left', 4)];
+    const stale = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2), sample(1040, 'left', 3), sample(1120, 'left', 4)];
     expect(summarizeHeadGesture(stale, window)).toBeNull();
     const ambiguous = [
-      sample(500, 'neutral', 1, { generation: 2 }), sample(670, 'neutral', 2, { generation: 2 }),
+      sample(-500, 'neutral', 1, { generation: 2 }), sample(-300, 'neutral', 2, { generation: 2 }),
       sample(1040, 'left', 3, { generation: 2, confidence: 0.7 }), sample(1140, 'left', 4, { generation: 2, confidence: 0.7 }),
       sample(1240, 'up', 5, { generation: 2, confidence: 0.72 }), sample(1340, 'up', 6, { generation: 2, confidence: 0.72 }),
     ];
@@ -108,7 +108,7 @@ describe('round rules', () => {
   });
 
   it('voids held head turns and low clock quality', () => {
-    const held = [sample(720, 'right', 1), sample(800, 'right', 2), sample(1040, 'right', 3), sample(1100, 'right', 4)];
+    const held = [sample(-500, 'right', 1), sample(-300, 'right', 2), sample(40, 'right', 3), sample(100, 'right', 4)];
     expect(summarizeHeadGesture(held, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 })).toBeNull();
     expect(judgeRound(1, { ...summary('pointer', 'left'), clockSigmaMs: 51 }, summary('looker', 'right')).verdict).toBe('void');
   });
@@ -132,13 +132,11 @@ describe('round rules', () => {
     expect(judgeRound(1, summary('pointer', 'up', 7000), summary('looker', 'left', 10_000)).verdict).toBe('dodge');
   });
 
-  it('keeps the turn and scores only for a correct guess', () => {
+  it('scores only for a correct guess', () => {
     const hit = judgeRound(1, summary('pointer', 'up'), summary('looker', 'up'));
     const miss = judgeRound(2, summary('pointer', 'up'), summary('looker', 'left'));
     expect(scoreRound({ pointer: 1, looker: 2 }, hit, 'pointer', 'looker')).toEqual({ pointer: 2, looker: 2 });
     expect(scoreRound({ pointer: 1, looker: 2 }, miss, 'pointer', 'looker')).toEqual({ pointer: 1, looker: 2 });
-    expect(nextPointerForResult(hit, 'pointer', 'looker')).toBe('pointer');
-    expect(nextPointerForResult(miss, 'pointer', 'looker')).toBe('looker');
   });
 
   it('penalizes missing movement without allowing negative scores', () => {
@@ -152,11 +150,10 @@ describe('round rules', () => {
     expect(scoreRound({ pointer: 1, looker: 1 }, bothTimeout, 'pointer', 'looker')).toEqual({ pointer: 0, looker: 0 });
   });
 
-  it('does not penalize a clock-uncertain observation and replays the same turn', () => {
+  it('does not penalize a clock-uncertain observation', () => {
     const replay = judgeRound(1, null, summary('looker', 'up'), 'clock-uncertain', 'ok');
     expect(replay).toMatchObject({ verdict: 'void', reason: 'clock_uncertain' });
     expect(scoreRound({ pointer: 2, looker: 1 }, replay, 'pointer', 'looker')).toEqual({ pointer: 2, looker: 1 });
-    expect(nextPointerForResult(replay, 'pointer', 'looker')).toBe('pointer');
   });
 
   it('chooses either player deterministically from the host random value', () => {

@@ -141,5 +141,5 @@ function isRoundResult(value: unknown): boolean {
 function isScore(value: unknown): value is Score {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const entries = Object.entries(value);
-  return entries.length <= 2 && entries.every(([playerId, points]) => bounded(playerId, 128) && safeCounter(points) && points <= 3);
+  return entries.length <= 2 && entries.every(([playerId, points]) => bounded(playerId, 128) && safeCounter(points) && points <= 5);
 }

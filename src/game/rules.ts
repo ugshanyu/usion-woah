@@ -116,11 +116,6 @@ export function scoreRound(score: Score, result: RoundResult, pointerId: string,
   return next;
 }
 
-export function nextPointerForResult(result: RoundResult, pointerId: string, lookerId: string): string {
-  if (result.verdict === 'hit' || result.verdict === 'void') return pointerId;
-  return lookerId;
-}
-
 export function chooseFirstPointer(playerIds: string[], randomValue: number): string {
   if (playerIds.length !== 2) throw new Error('two_players_required');
   const index = Math.abs(Math.trunc(randomValue)) % playerIds.length;

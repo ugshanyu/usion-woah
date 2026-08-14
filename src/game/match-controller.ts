@@ -6,8 +6,9 @@ import { EventDeduper, isControlEvent, type ControlEvent, type ObservationEvent,
 import type { UsionRoom } from '../platform/room';
 import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
+import { pointerForRound, TOTAL_ROUNDS, winningPlayerId } from './match-format';
 import type { MatchView } from './match-view';
-import { chooseFirstPointer, isDirectionChoiceInWindow, judgeRound, nextPointerForResult, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
+import { chooseFirstPointer, isDirectionChoiceInWindow, judgeRound, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
 import { HEAD_ACTIVE_END_MS, HEAD_ACTIVE_START_MS, HEAD_INFERENCE_DRAIN_MS, HEAD_NEUTRAL_START_MS, HEAD_RECOGNITION_TIMEOUT_MS, OBSERVATION_NETWORK_GRACE_MS } from './timing';
 import { TimerBag } from './timer-bag';
 import type { DirectionChoice, DirectionSample, GestureSummary, ObservationStatus, Role } from './types';
@@ -31,7 +32,6 @@ export class MatchController {
   private currentVisionGeneration: number | null = null;
   private currentChoice: DirectionChoice | null = null;
   private localObservationSent = false;
-  private nextPointerId: string | null = null;
   private nextRoundNotBefore = 0;
   private platformConnectedOnce = false;
   private platformRecovering = false;
@@ -72,8 +72,7 @@ export class MatchController {
     if (!round || !this.clock || room.myId !== round.lookerId || this.localObservationSent || sample.generation !== this.currentVisionGeneration) return;
     const targetLocalMs = this.clock.hostToLocal(round.targetHostMs);
     if (sample.capturePerfMs < targetLocalMs + HEAD_ACTIVE_START_MS || sample.capturePerfMs > targetLocalMs + HEAD_ACTIVE_END_MS) return;
-    this.emit({ phase: 'judging' });
-    this.trySendLookerObservation(round, targetLocalMs, false);
+    this.trySendLookerObservation(round, targetLocalMs, false, sample.capturePerfMs >= targetLocalMs);
   }
 
   async markLocalReady(stream: MediaStream): Promise<void> {
@@ -107,7 +106,6 @@ export class MatchController {
       if (senderId !== room.hostId || event.hostId !== senderId || !room.roster.includes(event.guestId)) return;
       this.session = event;
       this.view.score = Object.fromEntries(room.roster.map((id) => [id, 0]));
-      this.nextPointerId = event.firstPointerId;
       this.emit({ phase: 'connecting' });
       void this.setupP2P().catch(() => this.emit({ phase: 'network-error', rtcState: 'unavailable' }));
       return;
@@ -250,10 +248,14 @@ export class MatchController {
     const room = this.requireRoom();
     const session = this.session;
     if (!session || room.myId !== session.hostId || !this.remoteClockReady || this.currentRound || performance.now() < this.nextRoundNotBefore) return;
-    const pointerId = this.nextPointerId ?? session.hostId;
+    const roundId = this.view.roundId + 1;
+    if (roundId > TOTAL_ROUNDS) return;
+    const secondPointerId = room.roster.find((id) => id !== session.firstPointerId);
+    if (!secondPointerId) return;
+    const pointerId = pointerForRound(roundId, session.firstPointerId, secondPointerId);
     const lookerId = room.roster.find((id) => id !== pointerId)!;
     const targetHostMs = performance.now() + 3200;
-    const event: RoundArmEvent = { ns: 'woah.control.v1', kind: 'round', eventId: crypto.randomUUID(), matchId: session.matchId, hostEpoch: session.hostEpoch, roundId: this.view.roundId + 1, generation: this.view.roundId + 1, pointerId, lookerId, targetHostMs, deadlineHostMs: targetHostMs + HEAD_RECOGNITION_TIMEOUT_MS + HEAD_INFERENCE_DRAIN_MS };
+    const event: RoundArmEvent = { ns: 'woah.control.v1', kind: 'round', eventId: crypto.randomUUID(), matchId: session.matchId, hostEpoch: session.hostEpoch, roundId, generation: roundId, pointerId, lookerId, targetHostMs, deadlineHostMs: targetHostMs + HEAD_RECOGNITION_TIMEOUT_MS + HEAD_INFERENCE_DRAIN_MS };
     await this.sendEssential(event);
   }
 
@@ -296,9 +298,9 @@ export class MatchController {
     this.trySendLookerObservation(event, targetLocalMs, false);
   }
 
-  private trySendLookerObservation(event: RoundArmEvent, targetLocalMs: number, timedOut: boolean): void {
+  private trySendLookerObservation(event: RoundArmEvent, targetLocalMs: number, timedOut: boolean, showJudging = true): void {
     if (!this.clock || !this.session || this.currentRound?.eventId !== event.eventId || this.localObservationSent) return;
-    this.emit({ phase: 'judging' });
+    if (showJudging) this.emit({ phase: 'judging' });
     if (this.clock.uncertaintyMs > 50) {
       this.sendLocalObservation(event, null, 'clock-uncertain');
       return;
@@ -346,7 +348,11 @@ export class MatchController {
     const looker = this.observations.get(round.lookerId) ?? { summary: null, status: 'missing' as const };
     const result = judgeRound(round.roundId, pointer.summary, looker.summary, pointer.status, looker.status);
     const score = scoreRound(this.view.score, result, round.pointerId, round.lookerId);
-    const nextPointerId = nextPointerForResult(result, round.pointerId, round.lookerId);
+    const secondPointerId = this.requireRoom().roster.find((id) => id !== this.session!.firstPointerId);
+    if (!secondPointerId) return;
+    const nextPointerId = round.roundId < TOTAL_ROUNDS
+      ? pointerForRound(round.roundId + 1, this.session.firstPointerId, secondPointerId)
+      : round.pointerId;
     const verdict: VerdictEvent = { ns: 'woah.control.v1', kind: 'verdict', eventId: crypto.randomUUID(), matchId: this.session.matchId, hostEpoch: this.session.hostEpoch, result, score, nextPointerId };
     void this.sendEssential(verdict);
   }
@@ -358,16 +364,15 @@ export class MatchController {
     this.currentChoice = null;
     this.localObservationSent = false;
     this.timers.clear();
-    this.nextPointerId = event.nextPointerId;
-    const winner = Object.values(event.score).some((points) => points >= 3);
+    const matchComplete = event.result.roundId >= TOTAL_ROUNDS;
     const role: Role = this.requireRoom().myId === event.nextPointerId ? 'pointer' : 'looker';
-    this.cue.playResult(event.result.verdict, winner);
-    this.emit({ phase: winner ? 'gameover' : 'result', score: event.score, result: event.result, role, targetLocalMs: null });
-    if (winner && this.requireRoom().myId === this.session.hostId) {
-      const winnerId = Object.entries(event.score).find(([, points]) => points >= 3)?.[0];
-      if (winnerId) void this.room.reportResult(winnerId, event.score, this.session.matchId).catch(() => undefined);
+    this.cue.playResult(event.result.verdict, matchComplete);
+    this.emit({ phase: matchComplete ? 'gameover' : 'result', score: event.score, result: event.result, role, targetLocalMs: null });
+    if (matchComplete && this.requireRoom().myId === this.session.hostId) {
+      const winnerId = winningPlayerId(event.score, [this.session.hostId, this.session.guestId]);
+      void this.room.reportResult(winnerId, event.score, this.session.matchId).catch(() => undefined);
     }
-    if (!winner && this.requireRoom().myId === this.session.hostId) {
+    if (!matchComplete && this.requireRoom().myId === this.session.hostId) {
       const delay = event.result.verdict === 'void' ? 1200 : 2200;
       this.nextRoundNotBefore = performance.now() + delay;
       this.timers.add(() => void this.scheduleNextRound(), delay);
@@ -421,7 +426,6 @@ export class MatchController {
     this.timers.clear();
     if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
     this.clockTimer = null;
-    if (this.currentRound) this.nextPointerId = this.currentRound.pointerId;
     this.currentRound = null;
     this.currentVisionGeneration = null;
     this.currentChoice = null;

@@ -26,4 +26,14 @@ describe('network protocol guards', () => {
     expect(isControlEvent(observation)).toBe(true);
     expect(isControlEvent({ ...observation, status: 'ok' })).toBe(false);
   });
+
+  it('accepts the five-point match maximum and rejects impossible scores', () => {
+    const verdict = {
+      ns: 'woah.control.v1', kind: 'verdict', eventId: 'verdict', matchId: 'm', hostEpoch: 'e', nextPointerId: 'guest',
+      result: { roundId: 10, verdict: 'dodge', reason: 'different_direction', pointer: null, looker: null },
+      score: { host: 5, guest: 4 },
+    };
+    expect(isControlEvent(verdict)).toBe(true);
+    expect(isControlEvent({ ...verdict, score: { host: 6, guest: 4 } })).toBe(false);
+  });
 });

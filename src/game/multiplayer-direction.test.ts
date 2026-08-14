@@ -14,7 +14,7 @@ describe('two-client synchronized direction-button vs head flow', () => {
       toHostTime: (localMs) => localMs, clockSigmaMs: 12,
     });
     const looker = summarizeHeadGesture([
-      headSample(520, 'neutral', 1), headSample(620, 'neutral', 2),
+      headSample(-700, 'neutral', 1), headSample(-500, 'neutral', 2),
       headSample(840, 'right', 3), headSample(900, 'right', 4),
     ], {
       roundId: 4, role: 'looker', generation: 9, targetLocalMs: 800,
@@ -32,7 +32,7 @@ describe('two-client synchronized direction-button vs head flow', () => {
       toHostTime: (localMs) => localMs, clockSigmaMs: 10,
     });
     const looker = summarizeHeadGesture([
-      headSample(720, 'neutral', 1, 10), headSample(800, 'neutral', 2, 10),
+      headSample(-500, 'neutral', 1, 10), headSample(-300, 'neutral', 2, 10),
       headSample(1050, 'left', 3, 10), headSample(1110, 'left', 4, 10),
     ], {
       roundId: 5, role: 'looker', generation: 10, targetLocalMs: 1000,
@@ -48,7 +48,7 @@ describe('two-client synchronized direction-button vs head flow', () => {
       toHostTime: (localMs) => localMs, clockSigmaMs: 10,
     });
     const looker = summarizeHeadGesture([
-      headSample(520, 'neutral', 1, 11), headSample(620, 'neutral', 2, 11),
+      headSample(-500, 'neutral', 1, 11), headSample(-300, 'neutral', 2, 11),
       headSample(1020, 'up', 3, 11), headSample(1120, 'up', 4, 11),
     ], {
       roundId: 6, role: 'looker', generation: 11, targetLocalMs: 1000,

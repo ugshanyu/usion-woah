@@ -63,10 +63,14 @@
 - [x] Change face capture to the first stable direction recognized within 3 seconds after WOAH.
 - [x] Update looker instructions, visible recognition countdown, timeout, and boundary/order regressions.
 - [x] Rebuild, redeploy, update the Usion iframe version, and verify the 3-second release in production.
+- [x] Open face recognition when countdown 1 appears and move the held-pose rearm interval before it.
+- [x] Replace result-driven role swapping/first-to-3 with fixed rounds 1–5 and 6–10 pointer blocks.
+- [x] End after round 10 with higher-score winner or draw, and update HUD/game-over/reporting/protocol limits.
+- [ ] Add timing, five-round block, ten-round completion, winner/draw regressions and publish production.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
 
 Input decision (2026-08-13): both players run only on-device face-direction detection. The current pointer chooses a cardinal direction with four timestamped touch buttons; the looker turns their head on the synchronized WOAH beat. Pose/arm inference and calibration are not part of the game.
 
-Turn decision (2026-08-13): the host randomly selects the first pointer. A correct guess scores one point and keeps the pointer's turn; a wrong guess swaps roles. Missing the timed input subtracts one point from the inactive player, clamped at zero, and swaps roles. The first player to three wins.
+Match-format decision (2026-08-14): the host randomly selects the first pointer. That player guesses in rounds 1–5, then the other player guesses in rounds 6–10 regardless of prior verdicts. A correct guess adds one point; missing timed input subtracts one point from the player who missed, clamped at zero. After round 10, the higher score wins and equal scores are a draw.
