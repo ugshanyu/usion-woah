@@ -52,7 +52,7 @@
 - [x] Send the pointer choice at WOAH, but withhold the verdict until the looker's stable camera evidence arrives or the full timeout expires.
 - [x] Retain the pre-WOAH neutral evidence for the entire recognition window and show a live face-processing state.
 - [x] Add immediate, delayed, exact-boundary, timeout, duplicate, and reconnect timing regressions.
-- [ ] Rebuild, redeploy, update the Usion iframe version, and verify the recognition-driven production release.
+- [x] Rebuild, redeploy, update the Usion iframe version, and verify the recognition-driven production release.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
