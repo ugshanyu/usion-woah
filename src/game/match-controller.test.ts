@@ -17,8 +17,8 @@ function createMatch() {
   return new MatchController(room, inference, new SampleBuffer());
 }
 
-function directionSample(at: number, direction: DirectionSample['direction'], frameSeq: number): DirectionSample {
-  return { capturePerfMs: at, direction, frameSeq, generation: 1, confidence: 0.9, quality: 0.9 };
+function directionSample(at: number, direction: DirectionSample['direction'], frameSeq: number, generation = 1): DirectionSample {
+  return { capturePerfMs: at, direction, frameSeq, generation, confidence: 0.9, quality: 0.9 };
 }
 
 function createRecognitionMatch() {
@@ -43,6 +43,7 @@ function createRecognitionMatch() {
   };
   const internals = match as unknown as {
     currentRound: RoundArmEvent | null;
+    currentVisionGeneration: number | null;
     currentChoice: DirectionChoice | null;
     localObservationSent: boolean;
     session: SessionEvent | null;
@@ -54,6 +55,7 @@ function createRecognitionMatch() {
     pauseForRtcRecovery: () => void;
   };
   internals.currentRound = round;
+  internals.currentVisionGeneration = 1;
   internals.session = session;
   internals.clock = { hostToLocal: (time) => time, localToHost: (time) => time, uncertaintyMs: 10 };
   return { match, samples, sendControl, round, internals };
@@ -134,6 +136,26 @@ describe('MatchController connection lifecycle', () => {
     samples.push(duplicate);
     match.handleVisionSample(duplicate);
     expect(sendControl).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the device-local vision generation while stamping the shared round generation', () => {
+    const { match, samples, sendControl, internals } = createRecognitionMatch();
+    internals.currentVisionGeneration = 7;
+    for (const item of [
+      directionSample(500, 'neutral', 1, 7),
+      directionSample(670, 'neutral', 2, 7),
+      directionSample(1080, 'left', 3, 7),
+      directionSample(1180, 'left', 4, 7),
+    ]) {
+      samples.push(item);
+      match.handleVisionSample(item);
+    }
+    expect(sendControl).toHaveBeenCalledTimes(1);
+    expect(sendControl.mock.calls[0][0]).toMatchObject({
+      generation: 1,
+      status: 'ok',
+      summary: { generation: 1, direction: 'left' },
+    });
   });
 
   it('sends the locked pointer choice at WOAH without fabricating a face verdict', () => {

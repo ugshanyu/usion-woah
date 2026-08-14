@@ -69,7 +69,7 @@ export class MatchController {
   handleVisionSample(sample: DirectionSample): void {
     const round = this.currentRound;
     const room = this.requireRoom();
-    if (!round || !this.clock || room.myId !== round.lookerId || this.localObservationSent || sample.generation !== round.generation) return;
+    if (!round || !this.clock || room.myId !== round.lookerId || this.localObservationSent || sample.generation !== this.currentVisionGeneration) return;
     const targetLocalMs = this.clock.hostToLocal(round.targetHostMs);
     if (sample.capturePerfMs < targetLocalMs + HEAD_ACTIVE_START_MS || sample.capturePerfMs > targetLocalMs + HEAD_ACTIVE_END_MS) return;
     this.emit({ phase: 'judging' });
@@ -312,7 +312,15 @@ export class MatchController {
   private observationWindow(event: RoundArmEvent, role: Role, targetLocalMs: number) {
     const clock = this.clock;
     if (!clock) throw new Error('clock_not_ready');
-    const window = { roundId: event.roundId, role, generation: event.generation, targetLocalMs, toHostTime: (time: number) => clock.localToHost(time), clockSigmaMs: clock.uncertaintyMs };
+    const window = {
+      roundId: event.roundId,
+      role,
+      generation: event.generation,
+      sampleGeneration: role === 'looker' ? this.currentVisionGeneration ?? undefined : undefined,
+      targetLocalMs,
+      toHostTime: (time: number) => clock.localToHost(time),
+      clockSigmaMs: clock.uncertaintyMs,
+    };
     return window;
   }
 

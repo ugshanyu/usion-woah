@@ -57,6 +57,9 @@
 - [x] Replace exact session-neutral round rearm with face-present, direction-specific held-pose protection.
 - [x] Add baseline-drift, no-face, held-pose, and landmark-contradiction regressions.
 - [x] Rebuild, redeploy, update the Usion iframe version, and verify face recognition in production.
+- [x] Decouple the shared round generation from each device's local MediaPipe generation.
+- [x] Add a regression where calibration offsets the local vision generation from the protocol round.
+- [ ] Rebuild, redeploy, update the Usion iframe version, and verify the generation fix in production.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.

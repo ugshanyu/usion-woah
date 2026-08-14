@@ -8,6 +8,7 @@ export type GestureWindow = {
   roundId: number;
   role: Role;
   generation: number;
+  sampleGeneration?: number;
   targetLocalMs: number;
   toHostTime: (localMs: number) => number;
   clockSigmaMs: number;
@@ -15,7 +16,7 @@ export type GestureWindow = {
 
 export function summarizeHeadGesture(samples: DirectionSample[], window: GestureWindow): GestureSummary | null {
   if (window.role !== 'looker' || window.clockSigmaMs > 50) return null;
-  const currentGeneration = samples.filter((sample) => sample.generation === window.generation);
+  const currentGeneration = samples.filter((sample) => sample.generation === (window.sampleGeneration ?? window.generation));
   const preBeat = currentGeneration
     .filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_NEUTRAL_START_MS
       && sample.capturePerfMs <= window.targetLocalMs + HEAD_NEUTRAL_END_MS

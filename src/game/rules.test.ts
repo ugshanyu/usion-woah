@@ -29,6 +29,25 @@ describe('round rules', () => {
     expect(result?.direction).toBe('right');
   });
 
+  it('reads local vision samples independently from the shared protocol generation', () => {
+    const samples = [
+      sample(720, 'neutral', 1, { generation: 7 }),
+      sample(800, 'neutral', 2, { generation: 7 }),
+      sample(1040, 'down', 3, { generation: 7 }),
+      sample(1100, 'down', 4, { generation: 7 }),
+    ];
+    const result = summarizeHeadGesture(samples, {
+      roundId: 1,
+      role: 'looker',
+      generation: 1,
+      sampleGeneration: 7,
+      targetLocalMs: 1000,
+      toHostTime: (time) => time,
+      clockSigmaMs: 10,
+    });
+    expect(result).toMatchObject({ direction: 'down', generation: 1 });
+  });
+
   it('does not use missing-face frames to rearm a round', () => {
     const samples = [
       sample(720, 'unknown', 1, { facePresent: false, quality: 0 }),
