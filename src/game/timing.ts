@@ -6,14 +6,14 @@ export const VISION_SLOW_P95_MS = 160;
 export const HEAD_NEUTRAL_START_MS = -600;
 export const HEAD_NEUTRAL_END_MS = -100;
 export const HEAD_ACTIVE_START_MS = 0;
-export const HEAD_ACTIVE_END_MS = 5000;
+export const HEAD_ACTIVE_END_MS = 3000;
 
 // The detector may intentionally sample every 160 ms on a slower phone.
 // Leave one video-frame/scheduling margin before rejecting stable evidence.
 export const HEAD_STABLE_MAX_GAP_MS = VISION_MAX_INTERVAL_MS + 80;
 export const HEAD_PEAK_WINDOW_MS = 180;
 
-// Recognition starts on WOAH and succeeds as soon as stable evidence exists.
+// WOAH opens a three-second reaction window. The first stable direction wins.
 // The drain lets a frame captured at the 5 s boundary finish on a slow device;
 // capture timestamps after HEAD_ACTIVE_END_MS are still rejected by the rules.
 export const HEAD_RECOGNITION_TIMEOUT_MS = HEAD_ACTIVE_END_MS;

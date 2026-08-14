@@ -31,13 +31,13 @@ export function summarizeHeadGesture(samples: DirectionSample[], window: Gesture
       .find(([first, second]) => second.capturePerfMs - first.capturePerfMs <= HEAD_STABLE_MAX_GAP_MS);
     if (!pair) return null;
     const averageConfidence = support.reduce((sum, sample) => sum + sample.confidence, 0) / support.length;
-    return { direction, support, pair, averageConfidence };
+    return { direction, support, pair, averageConfidence, recognizedAt: pair[1].capturePerfMs };
   }).filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
-    .sort((left, right) => right.support.length - left.support.length || right.averageConfidence - left.averageConfidence);
+    .sort((left, right) => left.recognizedAt - right.recognizedAt
+      || left.pair[0].capturePerfMs - right.pair[0].capturePerfMs
+      || right.averageConfidence - left.averageConfidence);
   const winner = candidates[0];
   if (!winner) return null;
-  const runnerUp = candidates[1];
-  if (runnerUp && runnerUp.support.length === winner.support.length && winner.averageConfidence - runnerUp.averageConfidence < 0.15) return null;
 
   const [first, second] = winner.pair;
   const peak = winner.support

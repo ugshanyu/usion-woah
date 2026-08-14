@@ -70,32 +70,32 @@ describe('round rules', () => {
     expect(judgeRound(1, summary('pointer', 'right'), result).verdict).toBe('hit');
   });
 
-  it('rejects direction frames outside the supported stability gap or 0–5 second post-WOAH window', () => {
+  it('rejects direction frames outside the supported stability gap or 0–3 second post-WOAH window', () => {
     const neutral = [sample(500, 'neutral', 1), sample(670, 'neutral', 2)];
     const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
     expect(summarizeHeadGesture([...neutral, sample(1000, 'up', 3), sample(1241, 'up', 4)], window)).toBeNull();
     expect(summarizeHeadGesture([...neutral, sample(900, 'up', 3), sample(950, 'up', 4)], window)).toBeNull();
-    expect(summarizeHeadGesture([...neutral, sample(5900, 'up', 3), sample(6001, 'up', 4)], window)).toBeNull();
+    expect(summarizeHeadGesture([...neutral, sample(3900, 'up', 3), sample(4001, 'up', 4)], window)).toBeNull();
   });
 
-  it('accepts stable face evidence immediately or at the exact 5 second boundary', () => {
+  it('accepts stable face evidence immediately or at the exact 3 second boundary', () => {
     const neutral = [sample(500, 'neutral', 1), sample(670, 'neutral', 2)];
     const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
     expect(summarizeHeadGesture([...neutral, sample(1000, 'left', 3), sample(1080, 'left', 4)], window)?.direction).toBe('left');
-    expect(summarizeHeadGesture([...neutral, sample(5900, 'down', 5), sample(6000, 'down', 6)], window)?.direction).toBe('down');
+    expect(summarizeHeadGesture([...neutral, sample(3900, 'down', 5), sample(4000, 'down', 6)], window)?.direction).toBe('down');
   });
 
-  it('uses dominant stable evidence instead of a weaker transition direction', () => {
+  it('locks the first stable direction instead of a stronger later direction', () => {
     const samples = [
       sample(500, 'neutral', 1), sample(670, 'neutral', 2),
-      sample(920, 'right', 3, { confidence: 0.25 }), sample(1080, 'right', 4, { confidence: 0.25 }),
+      sample(1020, 'right', 3, { confidence: 0.25 }), sample(1080, 'right', 4, { confidence: 0.25 }),
       sample(1140, 'up', 5, { confidence: 0.7 }), sample(1240, 'up', 6, { confidence: 0.8 }), sample(1340, 'up', 7, { confidence: 0.85 }),
     ];
     const result = summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 });
-    expect(result?.direction).toBe('up');
+    expect(result?.direction).toBe('right');
   });
 
-  it('rejects equal competing directions and stale vision generations', () => {
+  it('locks the earliest competing direction and rejects stale vision generations', () => {
     const window = { roundId: 1, role: 'looker' as const, generation: 2, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
     const stale = [sample(500, 'neutral', 1), sample(670, 'neutral', 2), sample(1040, 'left', 3), sample(1120, 'left', 4)];
     expect(summarizeHeadGesture(stale, window)).toBeNull();
@@ -104,7 +104,7 @@ describe('round rules', () => {
       sample(1040, 'left', 3, { generation: 2, confidence: 0.7 }), sample(1140, 'left', 4, { generation: 2, confidence: 0.7 }),
       sample(1240, 'up', 5, { generation: 2, confidence: 0.72 }), sample(1340, 'up', 6, { generation: 2, confidence: 0.72 }),
     ];
-    expect(summarizeHeadGesture(ambiguous, window)).toBeNull();
+    expect(summarizeHeadGesture(ambiguous, window)?.direction).toBe('left');
   });
 
   it('voids held head turns and low clock quality', () => {

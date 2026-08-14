@@ -7,11 +7,11 @@ function sample(at: number, frameSeq: number, direction: DirectionSample['direct
 }
 
 describe('SampleBuffer', () => {
-  it('retains pre-WOAH neutral evidence through the full 5 second recognition window', () => {
+  it('retains pre-WOAH neutral evidence through the full 3 second recognition window', () => {
     const buffer = new SampleBuffer();
     buffer.push(sample(400, 1));
-    buffer.push(sample(6000, 2, 'up'));
-    expect(buffer.between(400, 6000).map((item) => item.frameSeq)).toEqual([1, 2]);
+    buffer.push(sample(4000, 2, 'up'));
+    expect(buffer.between(400, 4000).map((item) => item.frameSeq)).toEqual([1, 2]);
   });
 
   it('remains bounded after the recognition horizon', () => {

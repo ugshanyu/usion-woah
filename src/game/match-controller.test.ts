@@ -36,7 +36,7 @@ function createRecognitionMatch() {
   const match = new MatchController(room, inference, samples);
   const round: RoundArmEvent = {
     ns: 'woah.control.v1', kind: 'round', eventId: 'round-recognition', matchId: 'match', hostEpoch: 'epoch',
-    roundId: 1, generation: 1, pointerId: 'guest', lookerId: 'host', targetHostMs: 1000, deadlineHostMs: 6320,
+    roundId: 1, generation: 1, pointerId: 'guest', lookerId: 'host', targetHostMs: 1000, deadlineHostMs: 4320,
   };
   const session: SessionEvent = {
     ns: 'woah.control.v1', kind: 'session', eventId: 'session', matchId: 'match', hostEpoch: 'epoch', hostId: 'host', guestId: 'guest', firstPointerId: 'guest',
@@ -168,13 +168,13 @@ describe('MatchController connection lifecycle', () => {
     expect(sendControl.mock.calls[0][0]).toMatchObject({ kind: 'observation', status: 'ok', summary: { role: 'pointer', direction: 'down' } });
   });
 
-  it('accepts delayed evidence at 5 seconds and times out only after the recognition window', () => {
+  it('accepts delayed evidence at 3 seconds and times out only after the recognition window', () => {
     const delayed = createRecognitionMatch();
-    for (const item of [directionSample(500, 'neutral', 1), directionSample(670, 'neutral', 2), directionSample(5900, 'right', 3), directionSample(6000, 'right', 4)]) {
+    for (const item of [directionSample(500, 'neutral', 1), directionSample(670, 'neutral', 2), directionSample(3900, 'right', 3), directionSample(4000, 'right', 4)]) {
       delayed.samples.push(item);
       delayed.match.handleVisionSample(item);
     }
-    expect(delayed.sendControl.mock.calls[0][0]).toMatchObject({ status: 'ok', summary: { direction: 'right', onsetHostMs: 5900 } });
+    expect(delayed.sendControl.mock.calls[0][0]).toMatchObject({ status: 'ok', summary: { direction: 'right', onsetHostMs: 3900 } });
 
     const missing = createRecognitionMatch();
     missing.samples.push(directionSample(500, 'neutral', 1));
