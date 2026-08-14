@@ -77,6 +77,8 @@ After deployment:
 
 The host schedules a three-second countdown in host-monotonic time. Procedural music starts only after the camera-start gesture; synchronized 3/2/1 tones lead to the exact zero-time WOAH cue, with result stingers after judging. The face Worker may finish later, but the captured source timestamp is retained. The pointer locks one cardinal guess before the cue; the looker submits the first stable head turn after a neutral pre-window. Missing input produces the defined score penalty; stale generations, high clock uncertainty, or unfair camera timing produce a score-neutral replay.
 
+Face inference runs continuously after calibration with one frame in flight and an adaptive 50-160 ms target interval. For each WOAH beat `T`, neutral rearm evidence is read from `T-600` through `T-100` ms and cardinal head-direction evidence from `T-100` through `T+360` ms. The winning direction needs two matching classified frames no more than 240 ms apart. The observation is summarized at `T+600` ms so a slow Worker's last source frame can finish without changing its capture timestamp; the host then allows 250 ms for the peer observation before finalizing.
+
 Essential ready/session/round/observation/verdict events are deduplicated and journaled through Usion actions while also using the reliable WebRTC control channel when open. SDP/ICE uses only the targeted `signal` realtime action; raw video and landmarks never use the Usion relay.
 
 ## Real-device release checklist

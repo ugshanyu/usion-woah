@@ -1,4 +1,5 @@
 import type { DirectionChoice, DirectionSample, GestureSummary, ObservationStatus, Role, RoundResult, Score } from './types';
+import { HEAD_ACTIVE_END_MS, HEAD_ACTIVE_START_MS, HEAD_NEUTRAL_END_MS, HEAD_NEUTRAL_START_MS, HEAD_PEAK_WINDOW_MS, HEAD_STABLE_MAX_GAP_MS } from './timing';
 
 const CARDINAL = new Set(['up', 'down', 'left', 'right']);
 export const POINTER_GUESS_LEAD_MS = 3500;
@@ -14,30 +15,39 @@ export type GestureWindow = {
 
 export function summarizeHeadGesture(samples: DirectionSample[], window: GestureWindow): GestureSummary | null {
   if (window.role !== 'looker' || window.clockSigmaMs > 50) return null;
-  const neutral = samples.filter((sample) => sample.capturePerfMs >= window.targetLocalMs - 300 && sample.capturePerfMs <= window.targetLocalMs - 80 && sample.direction === 'neutral' && sample.quality >= 0.6);
+  const currentGeneration = samples.filter((sample) => sample.generation === window.generation);
+  const neutral = currentGeneration.filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_NEUTRAL_START_MS && sample.capturePerfMs <= window.targetLocalMs + HEAD_NEUTRAL_END_MS && sample.direction === 'neutral' && sample.quality >= 0.6);
   if (neutral.length < 2) return null;
-  const active = samples.filter((sample) => sample.capturePerfMs >= window.targetLocalMs - 80 && sample.capturePerfMs <= window.targetLocalMs + 220 && CARDINAL.has(sample.direction) && sample.confidence >= 0.65 && sample.quality >= 0.6);
-  if (active.length < 2) return null;
+  const active = currentGeneration.filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_ACTIVE_START_MS && sample.capturePerfMs <= window.targetLocalMs + HEAD_ACTIVE_END_MS && CARDINAL.has(sample.direction) && sample.quality >= 0.6);
+  const candidates = [...CARDINAL].map((direction) => {
+    const support = active.filter((sample) => sample.direction === direction);
+    const pair = support.flatMap((first, index) => support.slice(index + 1).map((second) => [first, second] as const))
+      .find(([first, second]) => second.capturePerfMs - first.capturePerfMs <= HEAD_STABLE_MAX_GAP_MS);
+    if (!pair) return null;
+    const averageConfidence = support.reduce((sum, sample) => sum + sample.confidence, 0) / support.length;
+    return { direction, support, pair, averageConfidence };
+  }).filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+    .sort((left, right) => right.support.length - left.support.length || right.averageConfidence - left.averageConfidence);
+  const winner = candidates[0];
+  if (!winner) return null;
+  const runnerUp = candidates[1];
+  if (runnerUp && runnerUp.support.length === winner.support.length && winner.averageConfidence - runnerUp.averageConfidence < 0.15) return null;
 
-  for (let index = 0; index < active.length - 1; index += 1) {
-    const first = active[index];
-    const second = active[index + 1];
-    if (first.direction !== second.direction || second.capturePerfMs - first.capturePerfMs > 140) continue;
-    const same = active.filter((sample) => sample.direction === first.direction && sample.capturePerfMs >= first.capturePerfMs && sample.capturePerfMs <= first.capturePerfMs + 120);
-    const peak = same.sort((a, b) => b.confidence - a.confidence)[0] ?? second;
-    return {
-      roundId: window.roundId,
-      role: window.role,
-      direction: first.direction,
-      onsetHostMs: window.toHostTime(first.capturePerfMs),
-      peakHostMs: window.toHostTime(peak.capturePerfMs),
-      confidence: Math.min(first.confidence, second.confidence),
-      clockSigmaMs: window.clockSigmaMs,
-      frameSeq: peak.frameSeq,
-      generation: window.generation,
-    };
-  }
-  return null;
+  const [first, second] = winner.pair;
+  const peak = winner.support
+    .filter((sample) => sample.capturePerfMs >= first.capturePerfMs && sample.capturePerfMs <= first.capturePerfMs + HEAD_PEAK_WINDOW_MS)
+    .sort((left, right) => right.confidence - left.confidence)[0] ?? second;
+  return {
+    roundId: window.roundId,
+    role: window.role,
+    direction: first.direction,
+    onsetHostMs: window.toHostTime(first.capturePerfMs),
+    peakHostMs: window.toHostTime(peak.capturePerfMs),
+    confidence: Math.min(first.confidence, second.confidence),
+    clockSigmaMs: window.clockSigmaMs,
+    frameSeq: peak.frameSeq,
+    generation: window.generation,
+  };
 }
 
 export function summarizeDirectionChoice(choice: DirectionChoice | null, window: GestureWindow): GestureSummary | null {
@@ -75,7 +85,7 @@ export function judgeRound(roundId: number, pointer: GestureSummary | null, look
   if (!pointer || !looker || pointer.role !== 'pointer' || looker.role !== 'looker') {
     return { roundId, verdict: 'void', reason: 'invalid_sample', pointer, looker };
   }
-  if (!CARDINAL.has(pointer.direction) || !CARDINAL.has(looker.direction) || pointer.confidence < 0.65 || looker.confidence < 0.65) {
+  if (!CARDINAL.has(pointer.direction) || !CARDINAL.has(looker.direction)) {
     return { roundId, verdict: 'void', reason: 'invalid_sample', pointer, looker };
   }
   if (pointer.clockSigmaMs > 50 || looker.clockSigmaMs > 50) {

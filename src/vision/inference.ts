@@ -1,4 +1,5 @@
 import type { DirectionSample, HeadCalibration, HeadFeature } from '../game/types';
+import { VISION_MAX_INTERVAL_MS, VISION_MIN_INTERVAL_MS, VISION_SLOW_P95_MS } from '../game/timing';
 import { classifyHead } from './head-classifier';
 
 type WorkerResult = {
@@ -149,8 +150,8 @@ export class VisionInference {
     if (this.inferenceHistory.length > 30) this.inferenceHistory.shift();
     const sorted = [...this.inferenceHistory].sort((left, right) => left - right);
     const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
-    this.intervalMs = Math.max(50, Math.min(160, p95 * 1.5));
-    if (p95 > 160) {
+    this.intervalMs = Math.max(VISION_MIN_INTERVAL_MS, Math.min(VISION_MAX_INTERVAL_MS, p95 * 1.5));
+    if (p95 > VISION_SLOW_P95_MS) {
       this.onStatus?.('slow');
     }
     this.onHeadFeature?.(result.feature, result.capturePerfMs);

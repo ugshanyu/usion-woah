@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { judgeRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
 import type { Direction, DirectionChoice, DirectionSample } from './types';
 
-function headSample(at: number, direction: Direction, frameSeq: number): DirectionSample {
-  return { capturePerfMs: at, direction, frameSeq, generation: 9, confidence: 0.92, quality: 0.9 };
+function headSample(at: number, direction: Direction, frameSeq: number, generation = 9): DirectionSample {
+  return { capturePerfMs: at, direction, frameSeq, generation, confidence: 0.92, quality: 0.9 };
 }
 
 describe('two-client synchronized direction-button vs head flow', () => {
@@ -32,8 +32,8 @@ describe('two-client synchronized direction-button vs head flow', () => {
       toHostTime: (localMs) => localMs, clockSigmaMs: 10,
     });
     const looker = summarizeHeadGesture([
-      headSample(720, 'neutral', 1), headSample(800, 'neutral', 2),
-      headSample(1050, 'left', 3), headSample(1110, 'left', 4),
+      headSample(720, 'neutral', 1, 10), headSample(800, 'neutral', 2, 10),
+      headSample(1050, 'left', 3, 10), headSample(1110, 'left', 4, 10),
     ], {
       roundId: 5, role: 'looker', generation: 10, targetLocalMs: 1000,
       toHostTime: (localMs) => localMs, clockSigmaMs: 10,
