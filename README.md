@@ -11,7 +11,7 @@ This is the standalone game repository. The Usion monorepo contains only the ser
 - Usion provides the authenticated room, invitation flow, targeted WebRTC signaling, and an essential event journal.
 - Verdicts use the camera source-frame timestamp for the head turn and a monotonic timestamp to enforce the guess deadline. Network arrival time and inference completion time do not affect the movement window.
 - The guest estimates host clock offset from the lowest-RTT probes. If uncertainty exceeds 50 ms, a round is replayed instead of awarding a point.
-- Calibration never advances on elapsed time: each prompt must be recognized in eight consecutive stable face samples before the next direction appears. A valid in-round head turn needs a neutral rearm, two stable samples, and adequate face quality. The guesser chooses exactly one direction during the countdown; that first choice locks immediately and the deadline closes at WOAH.
+- Startup calibration asks only for a centered, forward-facing head and completes after eight stable face samples. No left/right/up/down demonstration is required. Runtime directions use canonical player-centric yaw/pitch relative to that neutral baseline. A valid in-round head turn still needs a neutral rearm, two stable samples, and adequate face quality. The guesser chooses exactly one direction during the countdown; that first choice locks immediately and the deadline closes at WOAH.
 - A correct guess adds one point and keeps the guesser's turn. A miss swaps roles without awarding the defender. Missing a timed button/head movement subtracts one point from the inactive player (clamped at zero) and swaps roles. Clock uncertainty causes a score-neutral replay.
 - The looker's camera is the full-screen stage; the guesser's camera remains in the top-right picture-in-picture tile. A persistent proportional score bar and turn banner stay visible.
 - Client-side inference is suitable for casual play, not wagered or cheat-proof ranked competition.
@@ -66,7 +66,7 @@ Production intentionally uses STUN-only direct P2P:
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "recognition-driven"`, `pointerInput: "four-buttons"`, `turnMode: "hit-keeps-turn"`, and `scoreTarget: 3`.
+1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `pointerInput: "four-buttons"`, `turnMode: "hit-keeps-turn"`, and `scoreTarget: 3`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.

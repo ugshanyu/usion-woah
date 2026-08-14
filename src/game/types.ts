@@ -46,8 +46,6 @@ export type HeadFeature = {
   finite: boolean;
 };
 
-export type CalibrationPrompt = 'neutral' | 'left' | 'right' | 'up' | 'down';
-
 export type HeadCalibration = {
   neutral: HeadFeature;
   rightAxis: { x: number; y: number };

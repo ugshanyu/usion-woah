@@ -76,7 +76,7 @@ app.get('/health', (_, response) => response.json({
   iceMode: 'stun-only',
   stunServerCount: stunUrls.length,
   visionMode: 'face-only',
-  calibrationMode: 'recognition-driven',
+  calibrationMode: 'neutral-only',
   pointerInput: 'four-buttons',
   turnMode: 'hit-keeps-turn',
   scoreTarget: 3,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HeadFeature } from '../game/types';
-import { buildHeadCalibration, classifyHead } from './head-classifier';
+import { AUTOMATIC_PITCH_RANGE_RAD, AUTOMATIC_YAW_RANGE_RAD, buildNeutralHeadCalibration, classifyHead } from './head-classifier';
 
 function feature(x: number, y: number, overrides: Partial<HeadFeature> = {}): HeadFeature {
   return { x, y, roll: 0, faceWidth: 0.32, clipped: false, finite: true, ...overrides };
@@ -10,37 +10,56 @@ function repeated(value: HeadFeature): HeadFeature[] {
   return Array.from({ length: 8 }, () => ({ ...value }));
 }
 
-describe('head calibration and classification', () => {
-  const calibration = buildHeadCalibration({
-    neutral: repeated(feature(0, 0)), left: repeated(feature(-0.4, 0)), right: repeated(feature(0.5, 0)), up: repeated(feature(0, 0.35)), down: repeated(feature(0, -0.3)),
-  })!;
+describe('automatic neutral head calibration and classification', () => {
+  const calibration = buildNeutralHeadCalibration(repeated(feature(0.08, -0.04)))!;
 
-  for (const [direction, sample] of Object.entries({ left: feature(-0.3, 0), right: feature(0.35, 0), up: feature(0, 0.25), down: feature(0, -0.23) })) {
-    it(`uses guided axes to classify ${direction}`, () => expect(classifyHead(sample, calibration).direction).toBe(direction));
+  it('uses fixed canonical yaw and pitch ranges without directional prompts', () => {
+    expect(calibration.rightAxis).toEqual({ x: 1, y: 0 });
+    expect(calibration.upAxis).toEqual({ x: 0, y: 1 });
+    expect(calibration.scale).toEqual({
+      left: AUTOMATIC_YAW_RANGE_RAD,
+      right: AUTOMATIC_YAW_RANGE_RAD,
+      up: AUTOMATIC_PITCH_RANGE_RAD,
+      down: AUTOMATIC_PITCH_RANGE_RAD,
+    });
+  });
+
+  for (const [direction, sample] of Object.entries({
+    left: feature(-0.17, -0.04),
+    right: feature(0.33, -0.04),
+    up: feature(0.08, 0.14),
+    down: feature(0.08, -0.22),
+  })) {
+    it(`classifies canonical ${direction} from the neutral baseline`, () => {
+      expect(classifyHead(sample, calibration).direction).toBe(direction);
+    });
   }
 
   it('uses neutral and rejects diagonal, clipped, and rolled faces', () => {
-    expect(classifyHead(feature(0.01, 0.01), calibration).direction).toBe('neutral');
-    expect(classifyHead(feature(0.3, 0.3), calibration).direction).toBe('unknown');
-    expect(classifyHead(feature(0.3, 0, { clipped: true }), calibration).direction).toBe('unknown');
-    expect(classifyHead(feature(0.3, 0, { roll: Math.PI / 4 }), calibration).direction).toBe('unknown');
+    expect(classifyHead(feature(0.09, -0.03), calibration).direction).toBe('neutral');
+    expect(classifyHead(feature(0.3, 0.2), calibration).direction).toBe('unknown');
+    expect(classifyHead(feature(0.3, -0.04, { clipped: true }), calibration).direction).toBe('unknown');
+    expect(classifyHead(feature(0.3, -0.04, { roll: Math.PI / 4 }), calibration).direction).toBe('unknown');
   });
 
-  it('accepts a smaller but complete face and rejects one that is too small', () => {
-    expect(classifyHead(feature(0.35, 0, { faceWidth: 0.11 }), calibration).direction).toBe('right');
-    expect(classifyHead(feature(0.35, 0, { faceWidth: 0.09 }), calibration).direction).toBe('unknown');
+  it('accepts a smaller complete face and rejects one that is too small', () => {
+    expect(classifyHead(feature(0.33, -0.04, { faceWidth: 0.11 }), calibration).direction).toBe('right');
+    expect(classifyHead(feature(0.33, -0.04, { faceWidth: 0.09 }), calibration).direction).toBe('unknown');
   });
 
-  it('rejects calibration without enough motion', () => {
-    expect(buildHeadCalibration({ neutral: repeated(feature(0, 0)), left: repeated(feature(-0.01, 0)), right: repeated(feature(0.01, 0)), up: repeated(feature(0, 0.01)), down: repeated(feature(0, -0.01)) })).toBeNull();
+  it('handles yaw across the minus-pi/pi boundary', () => {
+    const wrapped = buildNeutralHeadCalibration(repeated(feature(3.12, 0)))!;
+    expect(classifyHead(feature(-2.95, 0), wrapped).direction).toBe('right');
   });
 
-  it('rejects an unstable guided calibration prompt', () => {
-    const noisy = repeated(feature(-0.4, 0));
-    noisy[0] = feature(-0.15, 0.25);
-    noisy[1] = feature(-0.65, -0.25);
-    noisy[2] = feature(-0.1, 0.2);
-    noisy[3] = feature(-0.7, -0.2);
-    expect(buildHeadCalibration({ neutral: repeated(feature(0, 0)), left: noisy, right: repeated(feature(0.5, 0)), up: repeated(feature(0, 0.35)), down: repeated(feature(0, -0.3)) })).toBeNull();
+  it('rejects insufficient, unusable, and unstable neutral samples', () => {
+    expect(buildNeutralHeadCalibration(repeated(feature(0, 0)).slice(0, 4))).toBeNull();
+    expect(buildNeutralHeadCalibration(repeated(feature(0, 0, { clipped: true })))).toBeNull();
+    const noisy = repeated(feature(0, 0));
+    noisy[0] = feature(-0.4, 0.3);
+    noisy[1] = feature(0.4, -0.3);
+    noisy[2] = feature(-0.35, 0.25);
+    noisy[3] = feature(0.35, -0.25);
+    expect(buildNeutralHeadCalibration(noisy)).toBeNull();
   });
 });

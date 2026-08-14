@@ -40,6 +40,9 @@
 - [x] Align the head-gesture stability gap with the adaptive inference cadence.
 - [x] Widen the capture-time evidence window and remove the duplicate confidence gate without accepting jitter or held poses.
 - [x] Add slow-device/head-direction timing regressions, then rebuild and publish the vision fix.
+- [ ] Replace the five-stage directional calibration with a short neutral-only automatic baseline.
+- [ ] Canonicalize raw yaw/pitch signs and use fixed head-turn ranges for all four directions.
+- [ ] Add neutral-only calibration and player-centric direction regressions, then rebuild and publish.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.

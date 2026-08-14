@@ -35,7 +35,8 @@ function fallbackAngles(landmarks: FaceLandmark[]): { x: number; y: number; roll
   const eyeMidX = (leftEye.x + rightEye.x) / 2;
   const eyeMidY = (leftEye.y + rightEye.y) / 2;
   return {
-    x: (nose.x - eyeMidX) / eyeDistance,
+    // Raw camera x grows toward the photographed player's anatomical left.
+    x: -(nose.x - eyeMidX) / eyeDistance,
     y: (eyeMidY - nose.y) / faceHeight,
     roll: Math.atan2(eyeDy, eyeDx),
   };
@@ -56,7 +57,8 @@ function matrixAngles(matrix: Matrix | undefined): { x: number; y: number; roll:
   const [forwardX, forwardY, forwardZ] = forward;
   const horizontal = Math.hypot(forwardX, forwardZ);
   return {
-    x: Math.atan2(forwardX, forwardZ),
+    // Expose player-centric yaw: positive is the photographed player's right.
+    x: -Math.atan2(forwardX, forwardZ),
     y: Math.atan2(-forwardY, Math.max(horizontal, 1e-6)),
     roll: Math.atan2(basisX[1], basisX[0]),
   };

@@ -1,4 +1,4 @@
-import { clamp, dot, median, medianVec, normalize, scale, sub, type Vec2 } from '../game/math';
+import { clamp, dot, median, medianVec, type Vec2 } from '../game/math';
 import type { Direction, HeadCalibration, HeadFeature } from '../game/types';
 
 export type HeadClassification = { direction: Direction; confidence: number; quality: number };
@@ -6,6 +6,8 @@ export type HeadClassification = { direction: Direction; confidence: number; qua
 const UNKNOWN: HeadClassification = { direction: 'unknown', confidence: 0, quality: 0 };
 export const MIN_FACE_WIDTH = 0.1;
 export const MAX_FACE_WIDTH = 0.9;
+export const AUTOMATIC_YAW_RANGE_RAD = 24 * Math.PI / 180;
+export const AUTOMATIC_PITCH_RANGE_RAD = 18 * Math.PI / 180;
 
 export function isUsableHeadFeature(feature: HeadFeature): boolean {
   return feature.finite && !feature.clipped && feature.faceWidth >= MIN_FACE_WIDTH && feature.faceWidth <= MAX_FACE_WIDTH;
@@ -15,43 +17,46 @@ function angleDistance(left: number, right: number): number {
   return Math.abs(Math.atan2(Math.sin(left - right), Math.cos(left - right)));
 }
 
+function signedAngleDelta(value: number, baseline: number): number {
+  return Math.atan2(Math.sin(value - baseline), Math.cos(value - baseline));
+}
+
 function project(feature: HeadFeature, calibration: HeadCalibration): Vec2 {
-  const delta = sub(feature, calibration.neutral);
+  const delta = {
+    x: signedAngleDelta(feature.x, calibration.neutral.x),
+    y: signedAngleDelta(feature.y, calibration.neutral.y),
+  };
   return {
     x: dot(delta, calibration.rightAxis),
     y: dot(delta, calibration.upAxis),
   };
 }
 
-export function buildHeadCalibration(prompts: Record<'neutral' | 'left' | 'right' | 'up' | 'down', HeadFeature[]>): HeadCalibration | null {
-  if (Object.values(prompts).some((samples) => samples.length < 5)) return null;
+export function buildNeutralHeadCalibration(samples: HeadFeature[]): HeadCalibration | null {
+  if (samples.length < 5 || samples.some((sample) => !isUsableHeadFeature(sample))) return null;
   const maxSpread = 4 * Math.PI / 180;
-  if (Object.values(prompts).some((samples) => {
-    const center = medianVec(samples);
-    return median(samples.map((sample) => Math.hypot(sample.x - center.x, sample.y - center.y))) > maxSpread;
-  })) return null;
-  const medians = Object.fromEntries(Object.entries(prompts).map(([key, samples]) => [key, {
+  const center = medianVec(samples);
+  if (median(samples.map((sample) => Math.hypot(signedAngleDelta(sample.x, center.x), signedAngleDelta(sample.y, center.y)))) > maxSpread) return null;
+  const neutralRoll = median(samples.map((sample) => sample.roll));
+  if (median(samples.map((sample) => angleDistance(sample.roll, neutralRoll))) > maxSpread) return null;
+  const neutral: HeadFeature = {
     ...samples[Math.floor(samples.length / 2)],
-    ...medianVec(samples),
-  }])) as Record<keyof typeof prompts, HeadFeature>;
-
-  const rightAxis = normalize(sub(medians.right, medians.left));
-  if (!rightAxis) return null;
-  const upRaw = sub(medians.up, medians.down);
-  const upAxis = normalize(sub(upRaw, scale(rightAxis, dot(upRaw, rightAxis))));
-  if (!upAxis) return null;
-  const right = dot(sub(medians.right, medians.neutral), rightAxis);
-  const left = -dot(sub(medians.left, medians.neutral), rightAxis);
-  const up = dot(sub(medians.up, medians.neutral), upAxis);
-  const down = -dot(sub(medians.down, medians.neutral), upAxis);
-  if (Math.min(left, right) < 15 * Math.PI / 180 || Math.min(up, down) < 10 * Math.PI / 180) return null;
+    ...center,
+    roll: neutralRoll,
+    faceWidth: median(samples.map((sample) => sample.faceWidth)),
+  };
 
   return {
-    neutral: medians.neutral,
-    rightAxis,
-    upAxis,
-    scale: { left, right, up, down },
-    neutralRoll: medians.neutral.roll,
+    neutral,
+    rightAxis: { x: 1, y: 0 },
+    upAxis: { x: 0, y: 1 },
+    scale: {
+      left: AUTOMATIC_YAW_RANGE_RAD,
+      right: AUTOMATIC_YAW_RANGE_RAD,
+      up: AUTOMATIC_PITCH_RANGE_RAD,
+      down: AUTOMATIC_PITCH_RANGE_RAD,
+    },
+    neutralRoll,
   };
 }
 

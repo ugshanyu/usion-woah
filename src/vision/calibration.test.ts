@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { HeadFeature } from '../game/types';
 import { CalibrationSession, type CalibrationFeedback, type CalibrationStage } from './calibration';
 import type { VisionInference } from './inference';
@@ -7,11 +7,8 @@ function feature(x: number, y: number, overrides: Partial<HeadFeature> = {}): He
   return { x, y, roll: 0, faceWidth: 0.32, clipped: false, finite: true, ...overrides };
 }
 
-describe('recognition-driven face calibration', () => {
-  afterEach(() => vi.useRealTimers());
-
-  it('advances only after the prompted face direction is stable', () => {
-    vi.useFakeTimers();
+describe('neutral-only automatic face calibration', () => {
+  it('completes after eight stable forward-facing samples without direction prompts', () => {
     const inference = { beginWindow: vi.fn(), setHeadCalibration: vi.fn() } as unknown as VisionInference;
     const session = new CalibrationSession(inference);
     let stage: CalibrationStage = 'neutral';
@@ -26,42 +23,20 @@ describe('recognition-driven face calibration', () => {
     session.onComplete = completed;
 
     session.start();
-    vi.advanceTimersByTime(10_000);
-    expect(stage).toBe('neutral');
-    expect(progress).toBe(0);
-
     session.acceptHead(feature(0, 0, { finite: false }));
     expect(feedback).toBe('searching');
-    acceptStable(session, feature(0, 0));
-    expect(feedback).toBe('recognized');
-    vi.advanceTimersByTime(350);
-    expect(stage).toBe('left');
+    for (let index = 0; index < 7; index += 1) session.acceptHead(feature(0.02, -0.01));
+    expect(stage).toBe('neutral');
+    expect(progress).toBe(0.875);
 
-    acceptStable(session, feature(0, 0));
-    expect(stage).toBe('left');
-    expect(feedback).toBe('move-more');
-    acceptStable(session, feature(-0.4, 0));
-    vi.advanceTimersByTime(350);
-    expect(stage).toBe('right');
-
-    acceptStable(session, feature(-0.4, 0));
-    expect(stage).toBe('right');
-    expect(feedback).toBe('move-more');
-    acceptStable(session, feature(0.4, 0));
-    vi.advanceTimersByTime(350);
-    expect(stage).toBe('up');
-
-    acceptStable(session, feature(0, 0.3));
-    vi.advanceTimersByTime(350);
-    expect(stage).toBe('down');
-    acceptStable(session, feature(0, -0.3));
-
+    session.acceptHead(feature(0.02, -0.01));
     expect(stage).toBe('complete');
     expect(completed).toHaveBeenCalledOnce();
+    expect(inference.beginWindow).toHaveBeenCalledOnce();
     expect(inference.setHeadCalibration).toHaveBeenCalledOnce();
   });
 
-  it('resets progress when the face moves before recognition', () => {
+  it('resets neutral progress when the face moves before baseline capture', () => {
     const inference = { beginWindow: vi.fn(), setHeadCalibration: vi.fn() } as unknown as VisionInference;
     const session = new CalibrationSession(inference);
     let progress = 0;
@@ -73,7 +48,3 @@ describe('recognition-driven face calibration', () => {
     expect(progress).toBe(0.125);
   });
 });
-
-function acceptStable(session: CalibrationSession, value: HeadFeature): void {
-  for (let index = 0; index < 8; index += 1) session.acceptHead({ ...value });
-}
