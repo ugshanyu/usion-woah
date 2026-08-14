@@ -3,7 +3,9 @@ import type { DirectionSample } from '../game/types';
 export class SampleBuffer {
   private readonly samples: DirectionSample[] = [];
 
-  constructor(private readonly retentionMs = 2000) {}
+  // Keep the pre-WOAH neutral samples until the full 5 s recognition window
+  // closes. At 20 Hz this remains a tiny, bounded buffer.
+  constructor(private readonly retentionMs = 7000) {}
 
   push(sample: DirectionSample): void {
     const previous = this.samples.at(-1);

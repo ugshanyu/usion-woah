@@ -6,6 +6,7 @@ import { DirectionPad } from './components/DirectionPad';
 import { VideoStage } from './components/VideoStage';
 import { MatchController, type MatchView } from './game/match-controller';
 import { focusedCamera, resultDirectionComparison } from './game/match-view';
+import { HEAD_RECOGNITION_TIMEOUT_MS } from './game/timing';
 import { languageFor, translator } from './i18n';
 import { UsionRoom, type RoomState } from './platform/room';
 import { CalibrationSession, type CalibrationFeedback, type CalibrationStage } from './vision/calibration';
@@ -69,6 +70,7 @@ export default function App() {
     inference.onHeadFeature = (feature) => calibration.acceptHead(feature);
     inference.onSample = (sample) => {
       samples.push(sample);
+      match.handleVisionSample(sample);
       setDirection(sample.direction);
     };
     calibration.onStage = (stage, progress, feedback) => {
@@ -221,7 +223,10 @@ function MatchOverlay({ view, hasRoom, cue, countdown, t }: { view: MatchView; h
     const progress = Math.max(0, Math.min(1, (countdown ?? 0) / 3000));
     return <div className={`cue ${cue === 'WOAH' ? 'woah' : ''}`}><strong>{view.role === 'pointer' ? t('pointer') : t('looker')}</strong><span>{cue}</span><p>{view.role === 'pointer' ? t('pointerHint') : t('lookerHint')}</p><div className="countdown-track"><i style={{ transform: `scaleX(${progress})` }} /></div></div>;
   }
-  if (view.phase === 'judging') return <div className="status-card">{t('judging')}</div>;
+  if (view.phase === 'judging') {
+    const seconds = countdown === null ? null : Math.max(0, Math.ceil((HEAD_RECOGNITION_TIMEOUT_MS + countdown) / 1000));
+    return <div className="status-card">{t('judging')}{seconds !== null && seconds > 0 ? ` ${seconds}` : ''}</div>;
+  }
   if (view.phase === 'result' || view.phase === 'gameover') {
     const verdict = view.result?.verdict ?? 'void';
     const comparison = resultDirectionComparison(view.result);

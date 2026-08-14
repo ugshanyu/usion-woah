@@ -30,11 +30,19 @@ describe('round rules', () => {
     expect(judgeRound(1, summary('pointer', 'right'), result).verdict).toBe('hit');
   });
 
-  it('rejects direction frames outside the supported stability gap or beat window', () => {
+  it('rejects direction frames outside the supported stability gap or 0–5 second post-WOAH window', () => {
     const neutral = [sample(500, 'neutral', 1), sample(670, 'neutral', 2)];
     const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
     expect(summarizeHeadGesture([...neutral, sample(1000, 'up', 3), sample(1241, 'up', 4)], window)).toBeNull();
-    expect(summarizeHeadGesture([...neutral, sample(1370, 'up', 3), sample(1420, 'up', 4)], window)).toBeNull();
+    expect(summarizeHeadGesture([...neutral, sample(900, 'up', 3), sample(950, 'up', 4)], window)).toBeNull();
+    expect(summarizeHeadGesture([...neutral, sample(5900, 'up', 3), sample(6001, 'up', 4)], window)).toBeNull();
+  });
+
+  it('accepts stable face evidence immediately or at the exact 5 second boundary', () => {
+    const neutral = [sample(500, 'neutral', 1), sample(670, 'neutral', 2)];
+    const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
+    expect(summarizeHeadGesture([...neutral, sample(1000, 'left', 3), sample(1080, 'left', 4)], window)?.direction).toBe('left');
+    expect(summarizeHeadGesture([...neutral, sample(5900, 'down', 5), sample(6000, 'down', 6)], window)?.direction).toBe('down');
   });
 
   it('uses dominant stable evidence instead of a weaker transition direction', () => {
@@ -53,8 +61,8 @@ describe('round rules', () => {
     expect(summarizeHeadGesture(stale, window)).toBeNull();
     const ambiguous = [
       sample(500, 'neutral', 1, { generation: 2 }), sample(670, 'neutral', 2, { generation: 2 }),
-      sample(940, 'left', 3, { generation: 2, confidence: 0.7 }), sample(1040, 'left', 4, { generation: 2, confidence: 0.7 }),
-      sample(1140, 'up', 5, { generation: 2, confidence: 0.72 }), sample(1240, 'up', 6, { generation: 2, confidence: 0.72 }),
+      sample(1040, 'left', 3, { generation: 2, confidence: 0.7 }), sample(1140, 'left', 4, { generation: 2, confidence: 0.7 }),
+      sample(1240, 'up', 5, { generation: 2, confidence: 0.72 }), sample(1340, 'up', 6, { generation: 2, confidence: 0.72 }),
     ];
     expect(summarizeHeadGesture(ambiguous, window)).toBeNull();
   });

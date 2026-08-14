@@ -8,9 +8,9 @@ import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
 import type { MatchView } from './match-view';
 import { chooseFirstPointer, isDirectionChoiceInWindow, judgeRound, nextPointerForResult, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
-import { HEAD_ACTIVE_END_MS, HEAD_NEUTRAL_START_MS, HEAD_OBSERVATION_DELAY_MS, OBSERVATION_NETWORK_GRACE_MS } from './timing';
+import { HEAD_ACTIVE_END_MS, HEAD_ACTIVE_START_MS, HEAD_INFERENCE_DRAIN_MS, HEAD_NEUTRAL_START_MS, HEAD_RECOGNITION_TIMEOUT_MS, OBSERVATION_NETWORK_GRACE_MS } from './timing';
 import { TimerBag } from './timer-bag';
-import type { DirectionChoice, GestureSummary, ObservationStatus, Role } from './types';
+import type { DirectionChoice, DirectionSample, GestureSummary, ObservationStatus, Role } from './types';
 
 export type { MatchPhase, MatchView } from './match-view';
 
@@ -30,6 +30,7 @@ export class MatchController {
   private currentRound: RoundArmEvent | null = null;
   private currentVisionGeneration: number | null = null;
   private currentChoice: DirectionChoice | null = null;
+  private localObservationSent = false;
   private nextPointerId: string | null = null;
   private nextRoundNotBefore = 0;
   private platformConnectedOnce = false;
@@ -63,6 +64,16 @@ export class MatchController {
     if (this.clock.uncertaintyMs > 50 || !isDirectionChoiceInWindow(choice, targetLocalMs)) return false;
     this.currentChoice = choice;
     return true;
+  }
+
+  handleVisionSample(sample: DirectionSample): void {
+    const round = this.currentRound;
+    const room = this.requireRoom();
+    if (!round || !this.clock || room.myId !== round.lookerId || this.localObservationSent || sample.generation !== round.generation) return;
+    const targetLocalMs = this.clock.hostToLocal(round.targetHostMs);
+    if (sample.capturePerfMs < targetLocalMs + HEAD_ACTIVE_START_MS || sample.capturePerfMs > targetLocalMs + HEAD_ACTIVE_END_MS) return;
+    this.emit({ phase: 'judging' });
+    this.trySendLookerObservation(round, targetLocalMs, false);
   }
 
   async markLocalReady(stream: MediaStream): Promise<void> {
@@ -242,7 +253,7 @@ export class MatchController {
     const pointerId = this.nextPointerId ?? session.hostId;
     const lookerId = room.roster.find((id) => id !== pointerId)!;
     const targetHostMs = performance.now() + 3200;
-    const event: RoundArmEvent = { ns: 'woah.control.v1', kind: 'round', eventId: crypto.randomUUID(), matchId: session.matchId, hostEpoch: session.hostEpoch, roundId: this.view.roundId + 1, generation: this.view.roundId + 1, pointerId, lookerId, targetHostMs, deadlineHostMs: targetHostMs + HEAD_OBSERVATION_DELAY_MS };
+    const event: RoundArmEvent = { ns: 'woah.control.v1', kind: 'round', eventId: crypto.randomUUID(), matchId: session.matchId, hostEpoch: session.hostEpoch, roundId: this.view.roundId + 1, generation: this.view.roundId + 1, pointerId, lookerId, targetHostMs, deadlineHostMs: targetHostMs + HEAD_RECOGNITION_TIMEOUT_MS + HEAD_INFERENCE_DRAIN_MS };
     await this.sendEssential(event);
   }
 
@@ -251,6 +262,7 @@ export class MatchController {
     if (!this.clock || !this.session || event.hostEpoch !== this.session.hostEpoch || ![event.pointerId, event.lookerId].includes(room.myId) || event.roundId <= this.view.roundId) return;
     this.currentRound = event;
     this.currentChoice = null;
+    this.localObservationSent = false;
     this.observations.clear();
     const role: Role = room.myId === event.pointerId ? 'pointer' : 'looker';
     this.currentVisionGeneration = role === 'looker' ? this.inference.beginWindow() : null;
@@ -258,18 +270,55 @@ export class MatchController {
     const targetLocalMs = this.clock.hostToLocal(event.targetHostMs);
     this.cue.scheduleCountdown(targetLocalMs);
     this.emit({ phase: 'countdown', role, targetLocalMs, roundId: event.roundId, result: null });
-    this.timers.add(() => this.captureObservation(event, role, targetLocalMs), Math.max(0, targetLocalMs + HEAD_OBSERVATION_DELAY_MS - performance.now()));
+    this.timers.add(() => this.openObservationWindow(event, role, targetLocalMs), Math.max(0, targetLocalMs - performance.now()));
+    if (role === 'looker') {
+      this.timers.add(
+        () => this.trySendLookerObservation(event, targetLocalMs, true),
+        Math.max(0, targetLocalMs + HEAD_RECOGNITION_TIMEOUT_MS + HEAD_INFERENCE_DRAIN_MS - performance.now()),
+      );
+    }
     if (room.myId === this.session.hostId) this.timers.add(() => this.finalizeRound(event), Math.max(0, event.deadlineHostMs + OBSERVATION_NETWORK_GRACE_MS - performance.now()));
   }
 
-  private captureObservation(event: RoundArmEvent, role: Role, targetLocalMs: number): void {
-    if (!this.clock || !this.session || this.currentRound?.eventId !== event.eventId) return;
+  private openObservationWindow(event: RoundArmEvent, role: Role, targetLocalMs: number): void {
+    if (!this.clock || !this.session || this.currentRound?.eventId !== event.eventId || this.localObservationSent) return;
     this.emit({ phase: 'judging' });
-    const window = { roundId: event.roundId, role, generation: event.generation, targetLocalMs, toHostTime: (time: number) => this.clock!.localToHost(time), clockSigmaMs: this.clock.uncertaintyMs };
-    const summary = role === 'pointer'
-      ? summarizeDirectionChoice(this.currentChoice, window)
-      : summarizeHeadGesture(this.samples.between(targetLocalMs + HEAD_NEUTRAL_START_MS, targetLocalMs + HEAD_ACTIVE_END_MS), window);
-    const status: ObservationStatus = this.clock.uncertaintyMs > 50 ? 'clock-uncertain' : summary ? 'ok' : 'missing';
+    if (this.clock.uncertaintyMs > 50) {
+      this.sendLocalObservation(event, null, 'clock-uncertain');
+      return;
+    }
+    if (role === 'pointer') {
+      const window = this.observationWindow(event, role, targetLocalMs);
+      const summary = summarizeDirectionChoice(this.currentChoice, window);
+      this.sendLocalObservation(event, summary, summary ? 'ok' : 'missing');
+      return;
+    }
+    this.trySendLookerObservation(event, targetLocalMs, false);
+  }
+
+  private trySendLookerObservation(event: RoundArmEvent, targetLocalMs: number, timedOut: boolean): void {
+    if (!this.clock || !this.session || this.currentRound?.eventId !== event.eventId || this.localObservationSent) return;
+    this.emit({ phase: 'judging' });
+    if (this.clock.uncertaintyMs > 50) {
+      this.sendLocalObservation(event, null, 'clock-uncertain');
+      return;
+    }
+    const window = this.observationWindow(event, 'looker', targetLocalMs);
+    const summary = summarizeHeadGesture(this.samples.between(targetLocalMs + HEAD_NEUTRAL_START_MS, targetLocalMs + HEAD_ACTIVE_END_MS), window);
+    if (summary) this.sendLocalObservation(event, summary, 'ok');
+    else if (timedOut) this.sendLocalObservation(event, null, 'missing');
+  }
+
+  private observationWindow(event: RoundArmEvent, role: Role, targetLocalMs: number) {
+    const clock = this.clock;
+    if (!clock) throw new Error('clock_not_ready');
+    const window = { roundId: event.roundId, role, generation: event.generation, targetLocalMs, toHostTime: (time: number) => clock.localToHost(time), clockSigmaMs: clock.uncertaintyMs };
+    return window;
+  }
+
+  private sendLocalObservation(event: RoundArmEvent, summary: GestureSummary | null, status: ObservationStatus): void {
+    if (!this.session || this.currentRound?.eventId !== event.eventId || this.localObservationSent) return;
+    this.localObservationSent = true;
     const observation: ObservationEvent = { ns: 'woah.control.v1', kind: 'observation', eventId: crypto.randomUUID(), matchId: this.session.matchId, hostEpoch: this.session.hostEpoch, summary, status, roundId: event.roundId, generation: event.generation };
     void this.sendEssential(observation);
   }
@@ -299,6 +348,8 @@ export class MatchController {
     this.currentRound = null;
     this.currentVisionGeneration = null;
     this.currentChoice = null;
+    this.localObservationSent = false;
+    this.timers.clear();
     this.nextPointerId = event.nextPointerId;
     const winner = Object.values(event.score).some((points) => points >= 3);
     const role: Role = this.requireRoom().myId === event.nextPointerId ? 'pointer' : 'looker';
@@ -349,6 +400,7 @@ export class MatchController {
     this.currentRound = null;
     this.currentVisionGeneration = null;
     this.currentChoice = null;
+    this.localObservationSent = false;
     this.remoteClockReady = false;
     this.nextRoundNotBefore = 0;
     this.pendingSignals = [];
@@ -365,6 +417,7 @@ export class MatchController {
     this.currentRound = null;
     this.currentVisionGeneration = null;
     this.currentChoice = null;
+    this.localObservationSent = false;
     this.observations.clear();
     this.samples.clear();
     this.remoteClockReady = false;
