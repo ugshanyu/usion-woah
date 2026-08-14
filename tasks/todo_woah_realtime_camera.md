@@ -66,7 +66,7 @@
 - [x] Open face recognition when countdown 1 appears and move the held-pose rearm interval before it.
 - [x] Replace result-driven role swapping/first-to-3 with fixed rounds 1–5 and 6–10 pointer blocks.
 - [x] End after round 10 with higher-score winner or draw, and update HUD/game-over/reporting/protocol limits.
-- [ ] Add timing, five-round block, ten-round completion, winner/draw regressions and publish production.
+- [x] Add timing, five-round block, ten-round completion, winner/draw regressions and publish production (`c92a51a`, Railway deployment `c305c0ad-d77e-4456-8870-8f8ce5eaf699`).
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
