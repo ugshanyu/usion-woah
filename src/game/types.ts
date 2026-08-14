@@ -41,6 +41,10 @@ export type HeadFeature = {
   x: number;
   y: number;
   roll: number;
+  landmarkX?: number;
+  landmarkY?: number;
+  source?: 'matrix' | 'landmarks';
+  orientationQuality?: number;
   faceWidth: number;
   clipped: boolean;
   finite: boolean;

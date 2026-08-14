@@ -6,11 +6,16 @@ export type HeadClassification = { direction: Direction; confidence: number; qua
 const UNKNOWN: HeadClassification = { direction: 'unknown', confidence: 0, quality: 0 };
 export const MIN_FACE_WIDTH = 0.1;
 export const MAX_FACE_WIDTH = 0.9;
-export const AUTOMATIC_YAW_RANGE_RAD = 24 * Math.PI / 180;
-export const AUTOMATIC_PITCH_RANGE_RAD = 18 * Math.PI / 180;
+export const AUTOMATIC_YAW_RANGE_RAD = 22 * Math.PI / 180;
+export const AUTOMATIC_PITCH_RANGE_RAD = 15 * Math.PI / 180;
+const LANDMARK_CONTRADICTION_THRESHOLD = 0.025;
 
 export function isUsableHeadFeature(feature: HeadFeature): boolean {
-  return feature.finite && !feature.clipped && feature.faceWidth >= MIN_FACE_WIDTH && feature.faceWidth <= MAX_FACE_WIDTH;
+  return feature.finite
+    && !feature.clipped
+    && (feature.orientationQuality ?? 1) >= 0.5
+    && feature.faceWidth >= MIN_FACE_WIDTH
+    && feature.faceWidth <= MAX_FACE_WIDTH;
 }
 
 function angleDistance(left: number, right: number): number {
@@ -32,6 +37,23 @@ function project(feature: HeadFeature, calibration: HeadCalibration): Vec2 {
   };
 }
 
+function medianOptional(samples: HeadFeature[], key: 'landmarkX' | 'landmarkY' | 'orientationQuality'): number | undefined {
+  const values = samples.map((sample) => sample[key]).filter((value): value is number => Number.isFinite(value));
+  return values.length === samples.length ? median(values) : undefined;
+}
+
+function landmarkAgreement(feature: HeadFeature, calibration: HeadCalibration, direction: Exclude<Direction, 'neutral' | 'unknown'>): number {
+  const horizontal = direction === 'left' || direction === 'right';
+  const current = horizontal ? feature.landmarkX : feature.landmarkY;
+  const baseline = horizontal ? calibration.neutral.landmarkX : calibration.neutral.landmarkY;
+  if (!Number.isFinite(current) || !Number.isFinite(baseline)) return 0.5;
+  const expectedSign = direction === 'right' || direction === 'up' ? 1 : -1;
+  const signedEvidence = (current! - baseline!) * expectedSign;
+  if (signedEvidence <= -LANDMARK_CONTRADICTION_THRESHOLD) return -1;
+  if (signedEvidence >= LANDMARK_CONTRADICTION_THRESHOLD) return 1;
+  return 0.5;
+}
+
 export function buildNeutralHeadCalibration(samples: HeadFeature[]): HeadCalibration | null {
   if (samples.length < 5 || samples.some((sample) => !isUsableHeadFeature(sample))) return null;
   const maxSpread = 4 * Math.PI / 180;
@@ -43,6 +65,10 @@ export function buildNeutralHeadCalibration(samples: HeadFeature[]): HeadCalibra
     ...samples[Math.floor(samples.length / 2)],
     ...center,
     roll: neutralRoll,
+    landmarkX: medianOptional(samples, 'landmarkX'),
+    landmarkY: medianOptional(samples, 'landmarkY'),
+    source: samples.every((sample) => sample.source === samples[0].source) ? samples[0].source : undefined,
+    orientationQuality: medianOptional(samples, 'orientationQuality'),
     faceWidth: median(samples.map((sample) => sample.faceWidth)),
   };
 
@@ -62,6 +88,7 @@ export function buildNeutralHeadCalibration(samples: HeadFeature[]): HeadCalibra
 
 export function classifyHead(feature: HeadFeature, calibration: HeadCalibration, previous: Direction = 'neutral'): HeadClassification {
   if (!isUsableHeadFeature(feature)) return UNKNOWN;
+  if (feature.source && calibration.neutral.source && feature.source !== calibration.neutral.source) return UNKNOWN;
   const rollDelta = angleDistance(feature.roll, calibration.neutralRoll);
   if (rollDelta > 15 * Math.PI / 180) return UNKNOWN;
   const projected = project(feature, calibration);
@@ -76,13 +103,19 @@ export function classifyHead(feature: HeadFeature, calibration: HeadCalibration,
   const runnerUp = ranked[1][1];
   const threshold = previous === direction ? 0.32 : 0.45;
   const absolute = direction === 'left' || direction === 'right' ? Math.abs(projected.x) : Math.abs(projected.y);
-  const minimum = (direction === 'left' || direction === 'right' ? 8 : 7) * Math.PI / 180;
+  const orthogonal = direction === 'left' || direction === 'right' ? Math.abs(projected.y) : Math.abs(projected.x);
+  const minimum = (direction === 'left' || direction === 'right' ? 7 : 5.5) * Math.PI / 180;
   if (winner < threshold) return winner < 0.22 ? { direction: 'neutral', confidence: 1 - winner / 0.22, quality: 1 } : UNKNOWN;
   if (absolute < minimum) return UNKNOWN;
   if (runnerUp > winner * 0.65) return UNKNOWN;
+  if (orthogonal > absolute * 0.65) return UNKNOWN;
+  const agreement = landmarkAgreement(feature, calibration, direction);
+  if (agreement < 0) return UNKNOWN;
+  const rollQuality = 1 - rollDelta / (15 * Math.PI / 180);
+  const orientationQuality = feature.orientationQuality ?? 1;
   return {
     direction,
-    confidence: clamp((winner - threshold) / Math.max(0.2, 1 - threshold) * 0.7 + (1 - runnerUp / Math.max(winner, 0.001)) * 0.3),
-    quality: clamp(1 - rollDelta / (15 * Math.PI / 180)),
+    confidence: clamp((winner - threshold) / Math.max(0.2, 1 - threshold) * 0.65 + (1 - runnerUp / Math.max(winner, 0.001)) * 0.25 + agreement * 0.1),
+    quality: clamp((0.65 + 0.35 * rollQuality) * orientationQuality * (0.9 + agreement * 0.1)),
   };
 }

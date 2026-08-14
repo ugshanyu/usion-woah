@@ -49,7 +49,7 @@ self.onmessage = async (event: MessageEvent<{ type: 'init' } | InferMessage>) =>
     const result = face!.detectForVideo(frame, capturePerfMs);
     const feature = result.faceLandmarks.length === 1
       ? extractHeadFeature(result.facialTransformationMatrixes[0], result.faceLandmarks[0])
-      : { x: 0, y: 0, roll: 0, faceWidth: 0, clipped: true, finite: false };
+      : { x: 0, y: 0, roll: 0, orientationQuality: 0, faceWidth: 0, clipped: true, finite: false };
     self.postMessage({ type: 'result', frameSeq, generation, capturePerfMs, inferenceMs: performance.now() - started, feature });
   } catch (error) {
     self.postMessage({ type: 'frame-error', frameSeq, generation, message: error instanceof Error ? error.message : String(error) });

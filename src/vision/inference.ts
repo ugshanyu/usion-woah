@@ -2,6 +2,10 @@ import type { DirectionSample, HeadCalibration, HeadFeature } from '../game/type
 import { VISION_MAX_INTERVAL_MS, VISION_MIN_INTERVAL_MS, VISION_SLOW_P95_MS } from '../game/timing';
 import { classifyHead } from './head-classifier';
 
+function angleDelta(left: number, right: number): number {
+  return Math.atan2(Math.sin(left - right), Math.cos(left - right));
+}
+
 type WorkerResult = {
   type: 'result';
   frameSeq: number;
@@ -157,7 +161,10 @@ export class VisionInference {
     this.onHeadFeature?.(result.feature, result.capturePerfMs);
     const previous = this.previousHeadFeature;
     this.previousHeadFeature = result.feature;
-    if (previous && Math.hypot(result.feature.x - previous.x, result.feature.y - previous.y) > 25 * Math.PI / 180) {
+    if (previous?.finite
+      && result.feature.finite
+      && (!previous.source || !result.feature.source || previous.source === result.feature.source)
+      && Math.hypot(angleDelta(result.feature.x, previous.x), angleDelta(result.feature.y, previous.y)) > 25 * Math.PI / 180) {
       this.onSample?.({ ...result, direction: 'unknown', confidence: 0, quality: 0 });
       return;
     }

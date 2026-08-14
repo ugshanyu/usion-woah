@@ -3,7 +3,7 @@ import type { HeadFeature } from '../game/types';
 import { AUTOMATIC_PITCH_RANGE_RAD, AUTOMATIC_YAW_RANGE_RAD, buildNeutralHeadCalibration, classifyHead } from './head-classifier';
 
 function feature(x: number, y: number, overrides: Partial<HeadFeature> = {}): HeadFeature {
-  return { x, y, roll: 0, faceWidth: 0.32, clipped: false, finite: true, ...overrides };
+  return { x, y, roll: 0, landmarkX: x, landmarkY: y, source: 'matrix', orientationQuality: 1, faceWidth: 0.32, clipped: false, finite: true, ...overrides };
 }
 
 function repeated(value: HeadFeature): HeadFeature[] {
@@ -42,6 +42,20 @@ describe('automatic neutral head calibration and classification', () => {
     expect(classifyHead(feature(0.3, -0.04, { roll: Math.PI / 4 }), calibration).direction).toBe('unknown');
   });
 
+  it('rejects a matrix direction contradicted by image landmarks', () => {
+    expect(classifyHead(feature(0.08, 0.16, { landmarkY: -0.2 }), calibration).direction).toBe('unknown');
+  });
+
+  it('keeps a naturally tilted but valid movement above the round quality gate', () => {
+    const result = classifyHead(feature(0.08, 0.16, { roll: 10 * Math.PI / 180 }), calibration);
+    expect(result.direction).toBe('up');
+    expect(result.quality).toBeGreaterThanOrEqual(0.6);
+  });
+
+  it('rejects switching between matrix and landmark-only angle scales mid-session', () => {
+    expect(classifyHead(feature(0.33, -0.04, { source: 'landmarks' }), calibration).direction).toBe('unknown');
+  });
+
   it('accepts a smaller complete face and rejects one that is too small', () => {
     expect(classifyHead(feature(0.33, -0.04, { faceWidth: 0.11 }), calibration).direction).toBe('right');
     expect(classifyHead(feature(0.33, -0.04, { faceWidth: 0.09 }), calibration).direction).toBe('unknown');
@@ -49,7 +63,7 @@ describe('automatic neutral head calibration and classification', () => {
 
   it('handles yaw across the minus-pi/pi boundary', () => {
     const wrapped = buildNeutralHeadCalibration(repeated(feature(3.12, 0)))!;
-    expect(classifyHead(feature(-2.95, 0), wrapped).direction).toBe('right');
+    expect(classifyHead(feature(-2.95, 0, { landmarkX: undefined }), wrapped).direction).toBe('right');
   });
 
   it('rejects insufficient, unusable, and unstable neutral samples', () => {

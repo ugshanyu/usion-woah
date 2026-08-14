@@ -41,4 +41,20 @@ describe('two-client synchronized direction-button vs head flow', () => {
 
     expect(judgeRound(5, pointer, looker)).toMatchObject({ verdict: 'dodge', reason: 'different_direction' });
   });
+
+  it('never awards a hit when the button is down and the detected face is up', () => {
+    const pointer = summarizeDirectionChoice({ direction: 'down', selectedLocalMs: 700, confidence: 1, sequence: 8 }, {
+      roundId: 6, role: 'pointer', generation: 11, targetLocalMs: 1000,
+      toHostTime: (localMs) => localMs, clockSigmaMs: 10,
+    });
+    const looker = summarizeHeadGesture([
+      headSample(520, 'neutral', 1, 11), headSample(620, 'neutral', 2, 11),
+      headSample(1020, 'up', 3, 11), headSample(1120, 'up', 4, 11),
+    ], {
+      roundId: 6, role: 'looker', generation: 11, targetLocalMs: 1000,
+      toHostTime: (localMs) => localMs, clockSigmaMs: 10,
+    });
+
+    expect(judgeRound(6, pointer, looker)).toMatchObject({ verdict: 'dodge', reason: 'different_direction' });
+  });
 });
