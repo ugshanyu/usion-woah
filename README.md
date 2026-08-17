@@ -66,7 +66,7 @@ Production intentionally uses STUN-only direct P2P:
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `pointerInput: "four-buttons"`, `turnMode: "fixed-five-round-blocks"`, `roundsPerPointer: 5`, and `totalRounds: 10`.
+1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `pointerInput: "four-buttons"`, `audioMode: "procedural-original-120bpm"`, `turnMode: "fixed-five-round-blocks"`, `roundsPerPointer: 5`, and `totalRounds: 10`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.
@@ -75,7 +75,7 @@ After deployment:
 
 ## Timing protocol
 
-The host schedules a three-second countdown in host-monotonic time. Procedural music starts only after the camera-start gesture; synchronized 3/2/1 tones lead to the exact zero-time WOAH cue, with result stingers after judging. The face Worker may finish later, but the captured source timestamp is retained. The pointer locks one cardinal guess before the cue; the looker submits the first stable head turn beginning at `1`. Missing input produces the defined score penalty; stale generations, high clock uncertainty, or unfair camera timing produce a score-neutral replay.
+The host schedules a three-second countdown in host-monotonic time. A rights-clean original 120 BPM club/trap loop starts only after the camera-start gesture. It is synthesized locally with kick, snare, hats, sub-bass, chord stabs, and an original lead contour—no streamed or bundled commercial recording. Synchronized 3/2/1 hits and a one-second riser lead to the exact zero-time synthesized WOAH vocal + bass drop, with result stingers after judging. The face Worker may finish later, but the captured source timestamp is retained. The pointer locks one cardinal guess before the cue; the looker submits the first stable head turn beginning at `1`. Missing input produces the defined score penalty; stale generations, high clock uncertainty, or unfair camera timing produce a score-neutral replay.
 
 Face inference runs continuously after calibration with one frame in flight and an adaptive 50-160 ms target interval. For each WOAH beat `T`, neutral rearm evidence is read from `T-1600` through `T-1100` ms and cardinal head-direction evidence from `T-1000` (the visible `1`) through `T+3000` ms. The winning direction needs two matching classified frames no more than 240 ms apart. A slow Worker gets a 320 ms inference drain without changing the captured source timestamp; the host then allows 250 ms for the peer observation before finalizing.
 

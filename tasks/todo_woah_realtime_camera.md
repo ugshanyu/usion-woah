@@ -67,6 +67,10 @@
 - [x] Replace result-driven role swapping/first-to-3 with fixed rounds 1–5 and 6–10 pointer blocks.
 - [x] End after round 10 with higher-score winner or draw, and update HUD/game-over/reporting/protocol limits.
 - [x] Add timing, five-round block, ten-round completion, winner/draw regressions and publish production (`c92a51a`, Railway deployment `c305c0ad-d77e-4456-8870-8f8ce5eaf699`).
+- [x] Replace the placeholder melody with a rights-clean original procedural challenge soundtrack.
+- [x] Add a synchronized countdown buildup and synthesized WOAH vocal/bass drop at the host beat.
+- [x] Add deterministic music-pattern/audio-timing regressions and verify test/lint/build/runtime preview.
+- [ ] Publish the original soundtrack release to Railway and update the Usion iframe version.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
@@ -74,3 +78,5 @@ Architecture decision (2026-08-12): ship one Railway service with STUN-only dire
 Input decision (2026-08-13): both players run only on-device face-direction detection. The current pointer chooses a cardinal direction with four timestamped touch buttons; the looker turns their head on the synchronized WOAH beat. Pose/arm inference and calibration are not part of the game.
 
 Match-format decision (2026-08-14): the host randomly selects the first pointer. That player guesses in rounds 1–5, then the other player guesses in rounds 6–10 regardless of prior verdicts. A correct guess adds one point; missing timed input subtracts one point from the player who missed, clamped at zero. After round 10, the higher score wins and equal scores are a draw.
+
+Audio decision (2026-08-17): use an original procedural 120 BPM club/trap loop and synthesize the countdown buildup plus WOAH vocal locally with Web Audio. Do not download, stream, or imitate the melody/recording from the referenced commercial song. The synchronized WOAH target remains driven by capture-time match timing, not by media playback position.

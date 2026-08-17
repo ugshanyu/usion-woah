@@ -1,17 +1,20 @@
 import type { Verdict } from '../game/types';
+import { midiToFrequency, TRACK_STEP_SECONDS, trackStepAt } from './original-track';
 
 export const COUNTDOWN_OFFSETS_MS = [-3000, -2000, -1000, 0] as const;
-
-const MELODY = [220, 277.18, 329.63, 277.18, 246.94, 329.63, 369.99, 329.63];
+export const SYNTH_WOAH_DURATION_MS = 760;
 
 export class CuePlayer {
   private context: AudioContext | null = null;
+  private musicGain: GainNode | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
   private musicTimer: number | null = null;
   private nextMusicNote = 0;
   private musicStep = 0;
 
   async unlock(): Promise<void> {
     this.context ??= new AudioContext({ latencyHint: 'interactive' });
+    this.noiseBuffer ??= this.createNoiseBuffer(this.context);
     if (this.context.state === 'suspended') await this.context.resume();
   }
 
@@ -22,6 +25,14 @@ export class CuePlayer {
   stopSoundtrack(): void {
     if (this.musicTimer !== null) window.clearInterval(this.musicTimer);
     this.musicTimer = null;
+    const context = this.context;
+    const gain = this.musicGain;
+    if (context && gain) {
+      gain.gain.cancelScheduledValues(context.currentTime);
+      gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.08);
+    }
+    this.musicGain = null;
   }
 
   scheduleCountdown(targetPerfMs: number): void {
@@ -30,9 +41,13 @@ export class CuePlayer {
     const target = context.currentTime + Math.max(0, targetPerfMs - performance.now()) / 1000;
     COUNTDOWN_OFFSETS_MS.slice(0, 3).forEach((offset, index) => {
       const when = target + offset / 1000;
-      if (when > context.currentTime + 0.01) this.tone(440 + index * 110, when, 0.09, 0.12, 'square');
+      if (when <= context.currentTime + 0.01) return;
+      this.countdownHit(when, index);
+      if (index === 2) this.riser(when, 0.92);
     });
-    this.tone(220, target, 0.2, 0.28, 'sawtooth', 880);
+    this.kick(target, 0.34, context.destination);
+    this.subDrop(target, context.destination);
+    this.synthWoah(target, context.destination);
   }
 
   playResult(verdict: Verdict, gameover: boolean): void {
@@ -53,30 +68,197 @@ export class CuePlayer {
     this.stopSoundtrack();
     void this.context?.close();
     this.context = null;
+    this.noiseBuffer = null;
   }
 
   private startMusic(): void {
     const context = this.context;
     if (!context || this.musicTimer !== null) return;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.72, context.currentTime + 0.35);
+    gain.connect(context.destination);
+    this.musicGain = gain;
     this.musicStep = 0;
     this.nextMusicNote = context.currentTime + 0.05;
     this.scheduleMusic();
-    this.musicTimer = window.setInterval(() => this.scheduleMusic(), 400);
+    this.musicTimer = window.setInterval(() => this.scheduleMusic(), 250);
   }
 
   private scheduleMusic(): void {
     const context = this.context;
-    if (!context || context.state !== 'running') return;
-    while (this.nextMusicNote < context.currentTime + 1.2) {
-      const frequency = MELODY[this.musicStep % MELODY.length];
-      this.tone(frequency, this.nextMusicNote, 0.24, 0.018, 'triangle');
-      if (this.musicStep % 4 === 0) this.tone(82.41, this.nextMusicNote, 0.12, 0.035, 'sine', 55);
+    const output = this.musicGain;
+    if (!context || !output || context.state !== 'running') return;
+    while (this.nextMusicNote < context.currentTime + 0.8) {
+      const step = trackStepAt(this.musicStep);
+      if (step.kick) this.kick(this.nextMusicNote, 0.16, output);
+      if (step.snare) this.snare(this.nextMusicNote, output);
+      if (step.closedHat) this.hat(this.nextMusicNote, 0.035, false, output);
+      if (step.openHat) this.hat(this.nextMusicNote, 0.12, true, output);
+      if (step.bassMidi !== null) this.bass(midiToFrequency(step.bassMidi), this.nextMusicNote, output);
+      if (step.leadMidi !== null) this.lead(midiToFrequency(step.leadMidi), this.nextMusicNote, output);
+      if (step.chordMidi) this.chord(step.chordMidi.map(midiToFrequency), this.nextMusicNote, output);
       this.musicStep += 1;
-      this.nextMusicNote += 0.3;
+      this.nextMusicNote += TRACK_STEP_SECONDS;
     }
   }
 
-  private tone(frequency: number, when: number, duration: number, volume: number, type: OscillatorType, endFrequency?: number): void {
+  private countdownHit(when: number, index: number): void {
+    const context = this.context;
+    if (!context) return;
+    this.kick(when, 0.2 + index * 0.035, context.destination);
+    this.tone(330 + index * 110, when, 0.11, 0.095, 'square');
+    this.hat(when + 0.12, 0.06, index === 2, context.destination);
+  }
+
+  private kick(when: number, volume: number, output: AudioNode): void {
+    const context = this.context;
+    if (!context) return;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(155, when);
+    oscillator.frequency.exponentialRampToValueAtTime(44, when + 0.16);
+    gain.gain.setValueAtTime(Math.max(0.0001, volume), when);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.23);
+    oscillator.connect(gain).connect(output);
+    oscillator.start(when);
+    oscillator.stop(when + 0.25);
+  }
+
+  private snare(when: number, output: AudioNode): void {
+    this.noiseHit(when, 0.16, 0.085, 1400, output);
+    this.tone(185, when, 0.09, 0.045, 'triangle', undefined, output);
+  }
+
+  private hat(when: number, duration: number, open: boolean, output: AudioNode): void {
+    this.noiseHit(when, duration, open ? 0.035 : 0.022, open ? 5200 : 6800, output);
+  }
+
+  private noiseHit(when: number, duration: number, volume: number, highpass: number, output: AudioNode): void {
+    const context = this.context;
+    if (!context || !this.noiseBuffer) return;
+    const source = context.createBufferSource();
+    const filter = context.createBiquadFilter();
+    const gain = context.createGain();
+    source.buffer = this.noiseBuffer;
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(highpass, when);
+    gain.gain.setValueAtTime(Math.max(0.0001, volume), when);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    source.connect(filter).connect(gain).connect(output);
+    source.start(when);
+    source.stop(when + duration + 0.01);
+  }
+
+  private bass(frequency: number, when: number, output: AudioNode): void {
+    const context = this.context;
+    if (!context) return;
+    const oscillator = context.createOscillator();
+    const filter = context.createBiquadFilter();
+    const gain = context.createGain();
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(frequency, when);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(520, when);
+    filter.Q.value = 3;
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(0.065, when + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
+    oscillator.connect(filter).connect(gain).connect(output);
+    oscillator.start(when);
+    oscillator.stop(when + 0.24);
+  }
+
+  private lead(frequency: number, when: number, output: AudioNode): void {
+    this.tone(frequency, when, 0.105, 0.025, 'square', frequency * 0.985, output);
+  }
+
+  private chord(frequencies: number[], when: number, output: AudioNode): void {
+    frequencies.forEach((frequency, index) => this.tone(frequency, when + index * 0.006, 0.32, 0.014, 'triangle', undefined, output));
+  }
+
+  private riser(when: number, duration: number): void {
+    const context = this.context;
+    if (!context || !this.noiseBuffer) return;
+    const source = context.createBufferSource();
+    const filter = context.createBiquadFilter();
+    const gain = context.createGain();
+    source.buffer = this.noiseBuffer;
+    source.loop = true;
+    filter.type = 'bandpass';
+    filter.Q.value = 1.2;
+    filter.frequency.setValueAtTime(450, when);
+    filter.frequency.exponentialRampToValueAtTime(7600, when + duration);
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(0.075, when + duration * 0.8);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    source.connect(filter).connect(gain).connect(context.destination);
+    source.start(when);
+    source.stop(when + duration + 0.01);
+  }
+
+  private subDrop(when: number, output: AudioNode): void {
+    const context = this.context;
+    if (!context) return;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(82, when);
+    oscillator.frequency.exponentialRampToValueAtTime(38, when + 0.55);
+    gain.gain.setValueAtTime(0.24, when);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.62);
+    oscillator.connect(gain).connect(output);
+    oscillator.start(when);
+    oscillator.stop(when + 0.65);
+  }
+
+  private synthWoah(when: number, output: AudioNode): void {
+    const context = this.context;
+    if (!context) return;
+    const duration = SYNTH_WOAH_DURATION_MS / 1000;
+    const master = context.createGain();
+    const delay = context.createDelay(0.5);
+    const echo = context.createGain();
+    master.gain.setValueAtTime(0.0001, when);
+    master.gain.exponentialRampToValueAtTime(0.2, when + 0.045);
+    master.gain.setValueAtTime(0.18, when + duration * 0.45);
+    master.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    delay.delayTime.value = 0.19;
+    echo.gain.value = 0.22;
+    master.connect(output);
+    master.connect(delay).connect(echo).connect(output);
+
+    const formants = [
+      { start: 520, end: 360, q: 7, weight: 1 },
+      { start: 920, end: 760, q: 9, weight: 0.48 },
+      { start: 2400, end: 2100, q: 11, weight: 0.19 },
+    ];
+    const filters = formants.map((formant) => {
+      const filter = context.createBiquadFilter();
+      const weight = context.createGain();
+      filter.type = 'bandpass';
+      filter.Q.value = formant.q;
+      filter.frequency.setValueAtTime(formant.start, when);
+      filter.frequency.exponentialRampToValueAtTime(formant.end, when + duration * 0.72);
+      weight.gain.value = formant.weight;
+      filter.connect(weight).connect(master);
+      return filter;
+    });
+    [-9, 9].forEach((detune) => {
+      const voice = context.createOscillator();
+      voice.type = 'sawtooth';
+      voice.detune.value = detune;
+      voice.frequency.setValueAtTime(178, when);
+      voice.frequency.exponentialRampToValueAtTime(112, when + duration * 0.82);
+      filters.forEach((filter) => voice.connect(filter));
+      voice.start(when);
+      voice.stop(when + duration + 0.02);
+    });
+    this.noiseHit(when, 0.07, 0.035, 900, master);
+  }
+
+  private tone(frequency: number, when: number, duration: number, volume: number, type: OscillatorType, endFrequency?: number, output?: AudioNode): void {
     const context = this.context;
     if (!context) return;
     const oscillator = context.createOscillator();
@@ -87,8 +269,21 @@ export class CuePlayer {
     gain.gain.setValueAtTime(0.0001, when);
     gain.gain.exponentialRampToValueAtTime(volume, when + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
-    oscillator.connect(gain).connect(context.destination);
+    oscillator.connect(gain).connect(output ?? context.destination);
     oscillator.start(when);
     oscillator.stop(when + duration + 0.02);
+  }
+
+  private createNoiseBuffer(context: AudioContext): AudioBuffer {
+    const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * 0.5), context.sampleRate);
+    const data = buffer.getChannelData(0);
+    let state = 0x6d2b79f5;
+    for (let index = 0; index < data.length; index += 1) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      data[index] = (state >>> 0) / 0x80000000 - 1;
+    }
+    return buffer;
   }
 }

@@ -78,6 +78,7 @@ app.get('/health', (_, response) => response.json({
   visionMode: 'face-only',
   calibrationMode: 'neutral-only',
   pointerInput: 'four-buttons',
+  audioMode: 'procedural-original-120bpm',
   turnMode: 'fixed-five-round-blocks',
   roundsPerPointer: 5,
   totalRounds: 10,
