@@ -54,6 +54,11 @@ export class UsionRoom {
   }
 
   sendSignal(signal: RtcSignal): void {
+    // WebRTC signaling must be reliable: realtime() is fire-and-forget and a
+    // single lost offer/answer ends the match. action() is acked, retried,
+    // and journaled for sync replay. The legacy realtime copy keeps mixed
+    // client versions working; receivers dedupe by (pcGeneration, signalSeq).
+    void Usion.game.action('woah_rtc', signal).catch(() => undefined);
     Usion.game.realtime('signal', signal);
   }
 
@@ -97,6 +102,10 @@ export class UsionRoom {
       this.onSignal?.(message.action_data, message.player_id);
     });
     Usion.game.onAction((message) => {
+      if (message.action_type === 'woah_rtc' && isRtcSignal(message.action_data)) {
+        this.onSignal?.(message.action_data, message.player_id);
+        return;
+      }
       if (isControlEvent(message.action_data)) this.onControl?.(message.action_data, message.player_id);
     });
     Usion.game.onConnectionState((connection) => {

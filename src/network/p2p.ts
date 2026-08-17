@@ -26,6 +26,8 @@ export class P2PCamera {
   private disconnectTimer: number | null = null;
   private connectionTimer: number | null = null;
   private recoveryTimer: number | null = null;
+  private offerRetryTimer: number | null = null;
+  private lastAnswer: RTCSessionDescriptionInit | null = null;
   private readonly options: P2POptions;
 
   remoteStream = new MediaStream();
@@ -65,9 +67,32 @@ export class P2PCamera {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       this.sendSignal('offer', undefined, pc.localDescription ?? offer);
+      this.armOfferRetry();
     } else {
       pc.ondatachannel = (event) => this.bindChannel(event.channel);
     }
+  }
+
+  // Re-offer until the peer's answer lands. Signaling rides a relay; if any
+  // hop drops the offer (or our answer never arrives), the retransmit —
+  // paired with the guest re-sending its answer on a duplicate offer —
+  // recovers the handshake instead of timing the match out.
+  private armOfferRetry(): void {
+    this.clearOfferRetry();
+    let retries = 0;
+    this.offerRetryTimer = globalThis.setInterval(() => {
+      if (!this.pc || this.pc.signalingState !== 'have-local-offer' || retries >= 4) {
+        this.clearOfferRetry();
+        return;
+      }
+      retries += 1;
+      if (this.pc.localDescription) this.sendSignal('offer', undefined, this.pc.localDescription);
+    }, 2500);
+  }
+
+  private clearOfferRetry(): void {
+    if (this.offerRetryTimer !== null) globalThis.clearInterval(this.offerRetryTimer);
+    this.offerRetryTimer = null;
   }
 
   async handleSignal(signal: RtcSignal): Promise<void> {
@@ -81,12 +106,22 @@ export class P2PCamera {
     while (this.seenRemoteSignals.size > 512) this.seenRemoteSignals.delete(this.seenRemoteSignals.values().next().value!);
     const pc = this.pc!;
     if (signal.kind === 'offer' && !this.options.isHost && signal.description) {
+      if (pc.remoteDescription?.sdp === signal.description.sdp && this.lastAnswer) {
+        // Retransmitted offer we already answered — the answer was likely
+        // lost in transit. Re-send it instead of renegotiating.
+        this.sendSignal('answer', undefined, this.lastAnswer);
+        return;
+      }
       await pc.setRemoteDescription(signal.description);
       await this.flushIce();
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      this.sendSignal('answer', undefined, pc.localDescription ?? answer);
+      this.lastAnswer = pc.localDescription ?? answer;
+      this.sendSignal('answer', undefined, this.lastAnswer);
     } else if (signal.kind === 'answer' && this.options.isHost && signal.description) {
+      // A re-sent answer after ours already applied would throw in 'stable'.
+      if (pc.signalingState !== 'have-local-offer') return;
+      this.clearOfferRetry();
       await pc.setRemoteDescription(signal.description);
       await this.flushIce();
     } else if (signal.kind === 'ice' && signal.candidate) {
@@ -155,6 +190,7 @@ export class P2PCamera {
       const offer = await this.pc.createOffer({ iceRestart: true });
       await this.pc.setLocalDescription(offer);
       this.sendSignal('offer', undefined, this.pc.localDescription ?? offer);
+      this.armOfferRetry();
     } catch {
       this.onState?.('unavailable');
       this.closePeer();
@@ -164,6 +200,8 @@ export class P2PCamera {
   private closePeer(): void {
     this.clearConnectionTimer();
     this.clearRecoveryTimer();
+    this.clearOfferRetry();
+    this.lastAnswer = null;
     if (this.disconnectTimer !== null) globalThis.clearTimeout(this.disconnectTimer);
     this.disconnectTimer = null;
     if (this.channel) {

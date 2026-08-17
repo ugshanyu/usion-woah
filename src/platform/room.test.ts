@@ -84,4 +84,34 @@ describe('UsionRoom', () => {
     expect(rosterAtCallback).toEqual(['host', 'guest']);
     expect(room.state?.roster).toEqual(['host']);
   });
+
+  it('sends WebRTC signals on the reliable action channel and accepts them from it', async () => {
+    const callbacks: Record<string, (...args: never[]) => void> = {};
+    const handler = (name: string) => (callback: (...args: never[]) => void) => { callbacks[name] = callback; };
+    const realtime = vi.fn();
+    const action = vi.fn(async () => ({ success: true }));
+    vi.stubGlobal('Usion', {
+      config: {}, init: async () => ({ userId: 'host', serviceId: 'service' }), getTheme: () => 'dark', getLanguage: () => 'en',
+      getLaunchParams: () => ({ roomId: null, mode: 'single' }), log: vi.fn(), exit: vi.fn(),
+      user: { getId: () => 'host', getName: () => 'Host', getAvatar: () => null, getToken: () => null },
+      game: { connect: vi.fn(), join: vi.fn(), leave: vi.fn(), realtime, action, forfeit: vi.fn(),
+        onRoomAssigned: handler('roomAssigned'), onJoined: handler('joined'), onPlayerJoined: handler('playerJoined'), onPlayerLeft: handler('playerLeft'),
+        onPlayerConnection: handler('playerConnection'), onRealtime: handler('realtime'), onAction: handler('action'), onConnectionState: handler('connection'), onReconnected: handler('reconnected'), onError: handler('error') },
+    });
+    const room = new UsionRoom();
+    await room.initialize();
+    const signal = {
+      ns: 'woah.rtc.v1', to: 'guest', matchId: 'm1', hostEpoch: 'e1', pcGeneration: 0, signalSeq: 1,
+      kind: 'answer', description: { type: 'answer', sdp: 'v=0' },
+    } as never;
+
+    room.sendSignal(signal);
+    expect(action).toHaveBeenCalledWith('woah_rtc', signal);
+    expect(realtime).toHaveBeenCalledWith('signal', signal);
+
+    const received: unknown[] = [];
+    room.onSignal = (incoming, senderId) => received.push([incoming, senderId]);
+    callbacks.action({ action_type: 'woah_rtc', action_data: signal, player_id: 'guest' } as never);
+    expect(received).toEqual([[signal, 'guest']]);
+  });
 });
