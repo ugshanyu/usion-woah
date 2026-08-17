@@ -1,8 +1,14 @@
 import express from 'express';
+import { setDefaultResultOrder } from 'node:dns';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildIceServers, parseStunUrls, parseTurnUrls } from './server/ice-config.mjs';
 import { createTurnCredentials } from './server/turn-credentials.mjs';
+import { postJsonWithRetry } from './server/upstream.mjs';
+
+// The Usion API resolves to dual-stack Cloudflare addresses. Prefer IPv4 so a
+// broken container IPv6 path cannot hang the very first verify-token call.
+setDefaultResultOrder('ipv4first');
 
 const app = express();
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -18,7 +24,6 @@ const turnTtlSeconds = Number.isFinite(requestedTurnTtlSeconds)
   : 600;
 const turnConfigured = Boolean(turnUrls.length && turnSecret);
 const issueBuckets = new Map();
-const upstreamTimeoutMs = 10_000;
 
 if (process.env.NODE_ENV === 'production' && (!serviceId || !turnConfigured)) {
   console.error('[FATAL] USION_SERVICE_ID and authenticated TURN are required in production.');
@@ -59,14 +64,23 @@ function bearer(request) {
 }
 
 async function verifyIdentity(token, expectedServiceId) {
-  const response = await fetch(`${apiUrl}/iframe/verify-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, expected_service_id: expectedServiceId }),
-    signal: AbortSignal.timeout(upstreamTimeoutMs),
-  });
-  if (!response.ok) throw new Error('invalid_token');
-  return response.json();
+  return postJsonWithRetry(fetch, `${apiUrl}/iframe/verify-token`, {
+    token,
+    expected_service_id: expectedServiceId,
+  }, { attempts: 3, attemptTimeoutMs: 3500, backoffMs: 300 });
+}
+
+// Establish DNS + TLS to the Usion API before the first player needs
+// credentials; the cold-path stall is what produced 10s issuance timeouts.
+async function warmUpstream() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(4000) });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
 }
 
 app.get('/health', (_, response) => response.json({
@@ -130,7 +144,10 @@ app.use(express.static(resolve(root, 'dist'), {
   },
 }));
 
-const server = app.listen(port, '0.0.0.0', () => console.log(`[WOAH] listening on ${port}`));
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`[WOAH] listening on ${port}`);
+  void warmUpstream();
+});
 
 function shutdown() {
   server.close(() => process.exit(0));
