@@ -139,4 +139,32 @@ describe('P2PCamera signaling', () => {
     expect(states.at(-1)).toBe('connected');
     expect(states).not.toContain('unavailable');
   });
+
+  it('sends plain-object descriptions even when the peer exposes platform instances', async () => {
+    // Regression: pc.localDescription is an RTCSessionDescription platform
+    // object that postMessage structured-clone cannot serialize; forwarding it
+    // raw made the guest's answer vanish silently on the web host.
+    class FakeSessionDescription {
+      constructor(public type: RTCSdpType, public sdp: string) {}
+      toJSON() { return { type: this.type, sdp: this.sdp }; }
+    }
+    class InstancePeer extends FakePeer {
+      setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.localDescription = new FakeSessionDescription(description.type!, description.sdp ?? '') as unknown as RTCSessionDescriptionInit;
+      });
+    }
+    vi.stubGlobal('MediaStream', FakeStream);
+    vi.stubGlobal('RTCPeerConnection', InstancePeer);
+    const sent: RtcSignal[] = [];
+    const camera = new P2PCamera({
+      myId: 'guest', peerId: 'host', isHost: false, matchId: 'match', hostEpoch: 'epoch',
+      iceServers: [], localStream: new FakeStream() as unknown as MediaStream, sendSignal: (signal) => sent.push(signal),
+    });
+    const offer: RtcSignal = { ns: 'woah.rtc.v1', to: 'guest', matchId: 'match', hostEpoch: 'epoch', pcGeneration: 0, signalSeq: 1, kind: 'offer', description: { type: 'offer', sdp: 'offer' } };
+    await camera.handleSignal(offer);
+
+    const answer = sent.find((signal) => signal.kind === 'answer');
+    expect(answer?.description).toEqual({ type: 'answer', sdp: 'answer' });
+    expect(Object.getPrototypeOf(answer?.description)).toBe(Object.prototype);
+  });
 });

@@ -64,8 +64,18 @@ export class UsionRoom {
     // and journaled for sync replay. The legacy realtime copy keeps mixed
     // client versions working; receivers dedupe by (pcGeneration, signalSeq).
     diag('sig-send', { kind: signal.kind, seq: signal.signalSeq, gen: signal.pcGeneration, to: signal.to.slice(0, 8) });
-    void Usion.game.action('woah_rtc', signal).catch((error) => diag('sig-send-fail', { seq: signal.signalSeq, error: error instanceof Error ? error.message : String(error) }));
-    Usion.game.realtime('signal', signal);
+    // A sync throw (e.g. a non-cloneable payload hitting postMessage) must
+    // never silently kill signaling — log it and keep the other channel going.
+    try {
+      void Usion.game.action('woah_rtc', signal).catch((error) => diag('sig-send-fail', { via: 'act', seq: signal.signalSeq, error: error instanceof Error ? error.message : String(error) }));
+    } catch (error) {
+      diag('sig-send-throw', { via: 'act', seq: signal.signalSeq, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
+    }
+    try {
+      Usion.game.realtime('signal', signal);
+    } catch (error) {
+      diag('sig-send-throw', { via: 'rt', seq: signal.signalSeq, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
+    }
   }
 
   async sendControl(event: ControlEvent): Promise<void> {

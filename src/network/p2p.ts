@@ -171,7 +171,13 @@ export class P2PCamera {
   }
 
   private sendSignal(kind: RtcSignal['kind'], candidate?: RTCIceCandidateInit, description?: RTCSessionDescriptionInit): void {
-    this.options.sendSignal({ ns: 'woah.rtc.v1', to: this.options.peerId, matchId: this.options.matchId, hostEpoch: this.options.hostEpoch, pcGeneration: this.generation, signalSeq: ++this.signalSeq, kind, candidate, description });
+    // pc.localDescription is an RTCSessionDescription platform object.
+    // postMessage structured-clone cannot serialize it (DataCloneError), and
+    // the throw is swallowed in async signal handlers — the message silently
+    // never leaves the iframe. Always send plain JSON copies.
+    const plainDescription = description ? { type: description.type, sdp: description.sdp } : undefined;
+    const plainCandidate = candidate ? JSON.parse(JSON.stringify(candidate)) as RTCIceCandidateInit : undefined;
+    this.options.sendSignal({ ns: 'woah.rtc.v1', to: this.options.peerId, matchId: this.options.matchId, hostEpoch: this.options.hostEpoch, pcGeneration: this.generation, signalSeq: ++this.signalSeq, kind, candidate: plainCandidate, description: plainDescription });
   }
 
   private async flushIce(): Promise<void> {
