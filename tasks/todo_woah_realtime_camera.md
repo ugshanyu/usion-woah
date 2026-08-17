@@ -4,8 +4,8 @@
 - [x] Implement on-device face-direction detection with calibration (pose support was later removed by product decision).
 - [x] Implement camera capture and privacy-safe local processing.
 - [x] Implement Usion room lifecycle and solo-to-multiplayer promotion.
-- [x] Convert P2P WebRTC video to the approved STUN-only production mode.
-- [x] Surface a deterministic network-incompatible state when direct P2P cannot connect.
+- [x] Prefer direct WebRTC video and use authenticated TURN fallback on restrictive networks.
+- [x] Surface a deterministic connection error only when both direct and relay paths fail.
 - [x] Implement clock synchronization and host-authoritative beat verdicts.
 - [x] Implement responsive Mongolian/English UI and accessibility states.
 - [x] Add classifier, rules, clock, protocol, and integration tests.
@@ -89,9 +89,10 @@
 - [x] Add vision-transition, protocol, controller, and rematch UI regressions; verify test/lint/build/browser behavior.
 - [x] Publish the vision/rematch release to Railway and Usions, then verify the live bundle and embedded game (`a33747f`, Railway deployment `1ba44d56-a13f-4bc6-a527-8b3b65b3627e`).
 - [x] Temporarily roll production back to the previous `d021f3e` feature snapshot for a connection A/B test (Railway deployment `f44ccd23-340d-485f-b84b-94201ef646b2`; Usions iframe `?v=d021f3e`).
+- [x] Restore short-lived authenticated TURN configuration after the rollback proved recent gameplay changes were not the connection cause.
 - [ ] Remove this task file after every item is complete and verified.
 
-Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
+Architecture update (2026-08-17): prefer direct P2P video but fall back to the proven Usion-owned coturn relay already used by Meet New People. The production A/B rollback showed that recent game/vision changes were not responsible for connection failures; STUN-only traversal was the limiting factor on mobile-carrier and restrictive NAT combinations. Railway issues short-lived per-user credentials only after iframe-token and room-membership verification. TURN relays encrypted DTLS-SRTP packets and never receives face landmarks.
 
 Input decision (2026-08-13): both players run only on-device face-direction detection. The current pointer chooses a cardinal direction with four timestamped touch buttons; the looker turns their head on the synchronized WOAH beat. Pose/arm inference and calibration are not part of the game.
 

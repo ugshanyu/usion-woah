@@ -13,11 +13,22 @@ export async function fetchIceServers(roomId: string, serviceId: string): Promis
     if (!response.ok) throw new Error('ice_unavailable');
     const payload = await response.json() as { iceServers?: RTCIceServer[] };
     if (!Array.isArray(payload.iceServers) || !payload.iceServers.length) throw new Error('ice_unavailable');
-    const urls = payload.iceServers.flatMap((server) => typeof server.urls === 'string' ? [server.urls] : server.urls)
-      .filter((url): url is string => typeof url === 'string' && /^stuns?:[^\s]+$/i.test(url));
-    const stunUrls = [...new Set(urls)].slice(0, 8);
-    if (!stunUrls.length) throw new Error('ice_unavailable');
-    return [{ urls: stunUrls }];
+    const iceServers: RTCIceServer[] = [];
+    let hasTurn = false;
+    for (const server of payload.iceServers) {
+      const urls = (typeof server.urls === 'string' ? [server.urls] : server.urls)
+        .filter((url): url is string => typeof url === 'string' && /^(?:stun|turn)s?:[^\s]+$/i.test(url));
+      if (!urls.length) continue;
+      const includesTurn = urls.some((url) => /^turns?:/i.test(url));
+      if (includesTurn && (typeof server.username !== 'string' || !server.username || typeof server.credential !== 'string' || !server.credential)) continue;
+      hasTurn ||= includesTurn;
+      iceServers.push({
+        urls: [...new Set(urls)].slice(0, 8),
+        ...(includesTurn ? { username: server.username, credential: server.credential } : {}),
+      });
+    }
+    if (!iceServers.length || !hasTurn) throw new Error('ice_unavailable');
+    return iceServers;
   } catch {
     throw new Error('ice_unavailable');
   }

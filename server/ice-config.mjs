@@ -11,6 +11,23 @@ export function parseStunUrls(value = '') {
   return [...new Set(urls.length ? urls : DEFAULT_STUN_URLS)].slice(0, 8);
 }
 
-export function buildIceServers(value = '') {
-  return [{ urls: parseStunUrls(value) }];
+export function parseTurnUrls(value = '') {
+  const urls = String(value)
+    .split(',')
+    .map((url) => url.trim())
+    .filter((url) => /^turns?:[^\s]+$/i.test(url));
+  return [...new Set(urls)].slice(0, 8);
+}
+
+export function buildIceServers(stunValue = '', turnValue = '', credentials = null) {
+  const servers = [{ urls: parseStunUrls(stunValue) }];
+  const turnUrls = parseTurnUrls(turnValue);
+  if (turnUrls.length && credentials?.username && credentials?.credential) {
+    servers.push({
+      urls: turnUrls,
+      username: credentials.username,
+      credential: credentials.credential,
+    });
+  }
+  return servers;
 }

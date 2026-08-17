@@ -1,7 +1,8 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildIceServers, parseStunUrls } from './server/ice-config.mjs';
+import { buildIceServers, parseStunUrls, parseTurnUrls } from './server/ice-config.mjs';
+import { createTurnCredentials } from './server/turn-credentials.mjs';
 
 const app = express();
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -9,10 +10,17 @@ const port = Number(process.env.PORT || 4173);
 const apiUrl = String(process.env.USION_API_URL || 'https://mobile.mongolai.mn').replace(/\/$/, '');
 const serviceId = process.env.USION_SERVICE_ID || '';
 const stunUrls = parseStunUrls(process.env.STUN_URLS);
+const turnUrls = parseTurnUrls(process.env.TURN_URLS);
+const turnSecret = process.env.TURN_SHARED_SECRET || '';
+const requestedTurnTtlSeconds = Number(process.env.TURN_TTL_SECONDS || 600);
+const turnTtlSeconds = Number.isFinite(requestedTurnTtlSeconds)
+  ? Math.max(60, Math.min(3600, Math.trunc(requestedTurnTtlSeconds)))
+  : 600;
+const turnConfigured = Boolean(turnUrls.length && turnSecret);
 const issueBuckets = new Map();
 
-if (process.env.NODE_ENV === 'production' && !serviceId) {
-  console.error('[FATAL] USION_SERVICE_ID is required in production.');
+if (process.env.NODE_ENV === 'production' && (!serviceId || !turnConfigured)) {
+  console.error('[FATAL] USION_SERVICE_ID and authenticated TURN are required in production.');
   process.exit(1);
 }
 
@@ -73,8 +81,10 @@ async function verifyRoom(token, roomId, userId, expectedServiceId) {
 
 app.get('/health', (_, response) => response.json({
   ok: true,
-  iceMode: 'stun-only',
+  iceMode: turnConfigured ? 'turn-backed' : 'stun-only',
   stunServerCount: stunUrls.length,
+  turnConfigured,
+  turnServerCount: turnUrls.length,
   visionMode: 'face-only',
   calibrationMode: 'neutral-only',
   directionEntryFrames: 2,
@@ -102,8 +112,14 @@ app.post('/api/ice', async (request, response) => {
     const userId = String(identity.user_id || '');
     if (!userId) throw new Error('invalid_identity');
     await verifyRoom(token, roomId, userId, serviceId);
+    if (!turnConfigured) throw new Error('turn_unavailable');
+    const credentials = createTurnCredentials(turnSecret, userId, turnTtlSeconds);
     response.setHeader('Cache-Control', 'no-store');
-    return response.json({ iceServers: buildIceServers(stunUrls.join(',')), mode: 'stun-only' });
+    return response.json({
+      iceServers: buildIceServers(stunUrls.join(','), turnUrls.join(','), credentials),
+      mode: 'turn-backed',
+      expiresIn: turnTtlSeconds,
+    });
   } catch {
     return response.status(403).json({ error: 'forbidden' });
   }

@@ -7,7 +7,7 @@ This is the standalone game repository. The Usion monorepo contains only the ser
 ## Fairness and privacy contract
 
 - Only face/head direction is inferred on each player's device. Face landmarks and camera frames are never sent to Usion.
-- Camera video uses a direct WebRTC peer connection protected by DTLS-SRTP. V1 is intentionally STUN-only and does not use a media relay.
+- Camera video uses WebRTC protected by DTLS-SRTP. It connects directly when possible and falls back to the Usion TURN relay on restrictive mobile or Wi-Fi networks; the relay cannot decrypt the video.
 - Usion provides the authenticated room, invitation flow, targeted WebRTC signaling, and an essential event journal.
 - Verdicts use the camera source-frame timestamp for the head turn and a monotonic timestamp to enforce the guess deadline. Network arrival time and inference completion time do not affect the movement window.
 - The guest estimates host clock offset from the lowest-RTT probes. If uncertainty exceeds 50 ms, a round is replayed instead of awarding a point.
@@ -55,23 +55,26 @@ The included Dockerfile is the supported deployment path. Production requires:
 
 - `USION_SERVICE_ID=woah-challenge-b0406313`
 - `USION_API_URL=https://mobile.mongolai.mn`
+- `TURN_URLS`, the Usion relay's UDP and TCP URLs
+- `TURN_SHARED_SECRET`, matching that relay's private coturn REST secret
+- optional `TURN_TTL_SECONDS`, 60–3600 seconds, default 600
 - optional `STUN_URLS`, a comma-separated list; defaults to two public Google STUN endpoints
 
-Production intentionally uses STUN-only direct P2P:
+Production prefers a direct peer path and uses authenticated TURN only as fallback:
 
-- No Cloudflare, AWS, managed TURN, or self-hosted coturn is required.
-- Some symmetric-NAT, mobile-carrier, corporate, or restrictive firewall combinations cannot establish direct video.
-- If the encrypted P2P camera and control channel do not open within 15 seconds, the match does not start and both players are told to switch networks.
+- The permanent TURN secret remains server-side. `/api/ice` returns short-lived per-user HMAC credentials only after verifying the iframe token and current room membership.
+- TURN relays encrypted WebRTC packets; it does not terminate DTLS-SRTP or receive face landmarks.
+- If both direct and relay paths fail, the match stops before the first round with an explicit connection message.
 
-`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits requests, and returns only the configured STUN URLs.
+`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits credential issuance, and returns STUN plus short-lived TURN configuration.
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `directionEntryFrames: 2`, `directionStabilityFrames: 3`, `pointerInput: "four-buttons"`, `audioMode: "round-synced-real-vocal-with-synthetic-fallback"`, `soundtrackSha256: "8FE25C5D...1D167"`, `roundCueLeadSeconds: 3`, `roundCueAudibleLeadSeconds: 2.45`, `roundVocalMarkerCount: 10`, `turnMode: "fixed-five-round-blocks"`, `roundsPerPointer: 5`, `totalRounds: 10`, and `rematchMode: "two-player-consent-fresh-session"`.
+1. Confirm `/health` returns `ok: true`, `iceMode: "turn-backed"`, `turnConfigured: true`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `directionEntryFrames: 2`, `directionStabilityFrames: 3`, `pointerInput: "four-buttons"`, `audioMode: "round-synced-real-vocal-with-synthetic-fallback"`, `soundtrackSha256: "8FE25C5D...1D167"`, `roundCueLeadSeconds: 3`, `roundCueAudibleLeadSeconds: 2.45`, `roundVocalMarkerCount: 10`, `turnMode: "fixed-five-round-blocks"`, `roundsPerPointer: 5`, `totalRounds: 10`, and `rematchMode: "two-player-consent-fresh-session"`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.
-5. Verify Share → Join on two signed-in real devices across same Wi-Fi, separate Wi-Fi, and Wi-Fi-to-cellular. Confirm incompatible networks stop before the first round with the explicit network message.
+5. Verify Share → Join on two signed-in real devices across same Wi-Fi, separate Wi-Fi, and Wi-Fi-to-cellular. Force relay-only ICE in a browser test and confirm a TURN relay candidate is selected.
 6. Publish only after camera permission, video, synchronization, background/resume, disconnect/rejoin, and replay behavior pass on iOS and Android.
 
 ## Timing protocol
@@ -80,13 +83,13 @@ The host schedules a three-second countdown in host-monotonic time. A rights-cle
 
 Face inference runs continuously after calibration with one frame in flight and an adaptive 50-160 ms target interval. For each WOAH beat `T`, neutral rearm evidence is read from `T-1600` through `T-1100` ms and cardinal head-direction evidence from `T-1000` (the visible `1`) through `T+3000` ms. The winning direction needs three uninterrupted matching classified frames, with each adjacent capture no more than 240 ms apart; contradictory, neutral, unknown, or low-quality frames break the run. A two-frame partial movement commits the first intended direction so return-motion side frames cannot replace it. A slow Worker gets a 320 ms inference drain without changing the captured source timestamp; the host then allows 250 ms for the peer observation before finalizing.
 
-Essential ready/session/round/observation/verdict/rematch events are deduplicated and journaled through Usion actions while also using the reliable WebRTC control channel when open. SDP/ICE uses only the targeted `signal` realtime action; raw video and landmarks never use the Usion relay.
+Essential ready/session/round/observation/verdict/rematch events are deduplicated and journaled through Usion actions while also using the reliable WebRTC control channel when open. SDP/ICE uses only the targeted `signal` realtime action. Raw video never enters the Usion application backend; encrypted WebRTC packets may traverse the TURN relay when a direct path is unavailable, and landmarks always stay on-device.
 
 ## Real-device release checklist
 
 - iOS and Android production WebViews show the OS camera prompt only after **Enable camera**.
 - Face calibration passes with glasses, facial hair/head coverings, varied skin tones, portrait and landscape.
-- Both cameras connect on same Wi-Fi and representative direct-P2P networks; an intentionally incompatible ICE fixture stops before round start.
+- Both cameras connect on same Wi-Fi, separate Wi-Fi, and Wi-Fi ↔ cellular; a forced-relay test confirms authenticated TURN fallback.
 - Synthetic 150 ms latency, 60 ms jitter, and 5% signaling/control loss cannot turn an invalid sample into a win/loss.
 - Backgrounding clears samples, camera, calibration, and the active round; foreground requires a new user gesture and calibration.
 - A held head turn is rejected; the pointer's first countdown choice locks all four buttons, WOAH closes the deadline, and stale or reordered events cannot produce a second verdict.
