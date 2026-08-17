@@ -87,7 +87,7 @@
 - [x] Harden runtime direction hysteresis and round gesture selection without changing raw-frame/player-centric semantics.
 - [x] Add a two-player consent rematch protocol that creates a fresh authoritative match/session and resets score/round state.
 - [x] Add vision-transition, protocol, controller, and rematch UI regressions; verify test/lint/build/browser behavior.
-- [ ] Publish the vision/rematch release to Railway and Usions, then verify the live bundle and embedded game.
+- [x] Publish the vision/rematch release to Railway and Usions, then verify the live bundle and embedded game (`a33747f`, Railway deployment `1ba44d56-a13f-4bc6-a527-8b3b65b3627e`).
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
