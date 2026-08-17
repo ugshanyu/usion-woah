@@ -62,11 +62,11 @@ The included Dockerfile is the supported deployment path. Production requires:
 
 Production prefers a direct peer path and uses authenticated TURN only as fallback:
 
-- The permanent TURN secret remains server-side. `/api/ice` returns short-lived per-user HMAC credentials only after verifying the iframe token and current room membership.
+- The permanent TURN secret remains server-side. `/api/ice` returns short-lived per-user HMAC credentials only after verifying an active user's iframe token scoped to this exact service.
 - TURN relays encrypted WebRTC packets; it does not terminate DTLS-SRTP or receive face landmarks.
 - If both direct and relay paths fail, the match stops before the first round with an explicit connection message.
 
-`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies current room membership with Usion, rate-limits credential issuance, and returns STUN plus short-lived TURN configuration.
+`POST /api/ice` accepts only an iframe-scoped bearer token for this service, verifies the active user with Usion, rate-limits credential issuance, and returns STUN plus short-lived TURN configuration. It intentionally does not call the room-status endpoint: the Usion host has already admitted the user to the room, while that endpoint also performs unrelated presence reads that must not block relay credential issuance.
 
 After deployment:
 

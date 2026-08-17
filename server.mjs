@@ -69,20 +69,6 @@ async function verifyIdentity(token, expectedServiceId) {
   return response.json();
 }
 
-async function getRoom(token, roomId) {
-  const response = await fetch(`${apiUrl}/games/rooms/${encodeURIComponent(roomId)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(upstreamTimeoutMs),
-  });
-  if (!response.ok) throw new Error('invalid_room');
-  return response.json();
-}
-
-function verifyRoom(room, userId, expectedServiceId) {
-  const roomServiceId = room.service_id || room.game_id;
-  if (roomServiceId !== expectedServiceId || !Array.isArray(room.player_ids) || !room.player_ids.includes(userId)) throw new Error('not_participant');
-}
-
 app.get('/health', (_, response) => response.json({
   ok: true,
   iceMode: turnConfigured ? 'turn-backed' : 'stun-only',
@@ -111,25 +97,27 @@ app.post('/api/ice', async (request, response) => {
   const requestedServiceId = typeof request.body?.serviceId === 'string' ? request.body.serviceId : '';
   if (!token || !roomId || roomId.length > 128 || !requestedServiceId || requestedServiceId !== serviceId) return response.status(400).json({ error: 'invalid_request' });
   if (!allowed(request.ip || 'unknown')) return response.status(429).json({ error: 'rate_limited' });
+  const startedAt = Date.now();
   try {
-    // These checks are independent network calls. Running them together keeps
-    // TURN issuance comfortably inside the mobile client's deadline.
-    const [identity, room] = await Promise.all([
-      verifyIdentity(token, serviceId),
-      getRoom(token, roomId),
-    ]);
+    // The iframe token is already scoped to this exact service and identifies
+    // an active Usion user. Avoid the room-status endpoint here: it performs
+    // unrelated Redis/presence reads and can block credential issuance even
+    // after Usion has already placed both users in the room.
+    const identity = await verifyIdentity(token, serviceId);
     const userId = String(identity.user_id || '');
     if (!userId) throw new Error('invalid_identity');
-    verifyRoom(room, userId, serviceId);
     if (!turnConfigured) throw new Error('turn_unavailable');
     const credentials = createTurnCredentials(turnSecret, userId, turnTtlSeconds);
     response.setHeader('Cache-Control', 'no-store');
+    console.info(`[WOAH] ICE credentials issued in ${Date.now() - startedAt}ms`);
     return response.json({
       iceServers: buildIceServers(stunUrls.join(','), turnUrls.join(','), credentials),
       mode: 'turn-backed',
       expiresIn: turnTtlSeconds,
     });
-  } catch {
+  } catch (error) {
+    const kind = error instanceof Error ? error.name : 'Error';
+    console.warn(`[WOAH] ICE credential issuance failed after ${Date.now() - startedAt}ms (${kind})`);
     return response.status(403).json({ error: 'forbidden' });
   }
 });
