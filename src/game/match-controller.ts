@@ -1,4 +1,5 @@
 import { CuePlayer } from '../audio/cue';
+import { diag } from '../network/diag';
 import { fetchIceServers } from '../network/ice';
 import { ClockSync, isClockMessage, type ClockMessage, type ClockReady } from '../network/clock-sync';
 import { P2PCamera } from '../network/p2p';
@@ -99,7 +100,10 @@ export class MatchController {
 
   handleSignal(signal: RtcSignal, senderId: string): void {
     const room = this.requireRoom();
-    if (senderId !== this.peerId() || signal.to !== room.myId || signal.description?.sdp && signal.description.sdp.length > 100_000) return;
+    if (senderId !== this.peerId() || signal.to !== room.myId || signal.description?.sdp && signal.description.sdp.length > 100_000) {
+      diag('sig-gate-drop', { kind: signal.kind, seq: signal.signalSeq, from: senderId.slice(0, 8), peer: (this.peerId() ?? 'none').slice(0, 8), toMe: signal.to === room.myId });
+      return;
+    }
     if (!this.p2p) this.pendingSignals.push(signal);
     else void this.p2p.handleSignal(signal);
   }
@@ -186,6 +190,7 @@ export class MatchController {
     if (this.session && this.view.phase !== 'gameover') return;
     if (this.session) this.resetTransport();
     const room = this.requireRoom();
+    diag('session', { host: event.hostId.slice(0, 8), guest: event.guestId.slice(0, 8), me: room.myId.slice(0, 8), roster: room.roster.map((id) => id.slice(0, 8)) });
     this.session = event;
     this.rematchRequests.clear();
     this.rematchStarting = false;
@@ -195,7 +200,10 @@ export class MatchController {
       rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY,
       rematchLocalReady: false, rematchPeerReady: false,
     });
-    void this.setupP2P().catch(() => this.emit({ phase: 'network-error', rtcState: 'unavailable' }));
+    void this.setupP2P().catch((error) => {
+      diag('setup-fail', { error: error instanceof Error ? error.message : String(error) });
+      this.emit({ phase: 'network-error', rtcState: 'unavailable' });
+    });
   }
 
   private acceptRematch(playerId: string): void {
@@ -225,8 +233,12 @@ export class MatchController {
     const room = this.requireRoom();
     const session = this.session;
     const peerId = this.peerId();
-    if (!session || !peerId || !room.roomId || !room.config.serviceId || !this.localStream || this.p2p) return;
+    if (!session || !peerId || !room.roomId || !room.config.serviceId || !this.localStream || this.p2p) {
+      diag('setup-skip', { session: Boolean(session), peer: Boolean(peerId), roomId: Boolean(room.roomId), stream: Boolean(this.localStream), p2p: Boolean(this.p2p) });
+      return;
+    }
     const iceServers = await fetchIceServers(room.roomId, room.config.serviceId);
+    diag('ice-ok', { servers: iceServers.length, host: room.myId === session.hostId });
     this.clock = new ClockSync(room.myId === session.hostId);
     const p2p = new P2PCamera({ myId: room.myId, peerId, isHost: room.myId === session.hostId, matchId: session.matchId, hostEpoch: session.hostEpoch, iceServers, localStream: this.localStream, sendSignal: (signal) => this.room.sendSignal(signal) });
     this.p2p = p2p;

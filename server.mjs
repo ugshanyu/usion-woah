@@ -136,6 +136,21 @@ app.post('/api/ice', async (request, response) => {
   }
 });
 
+app.post('/api/log', (request, response) => {
+  // Client diagnostics: rate-limited, size-capped breadcrumbs so match
+  // failures are debuggable from Railway logs. No auth on purpose — it only
+  // writes log lines, and the connection may be broken exactly when we need
+  // this most.
+  if (!allowed(`log:${request.ip || 'unknown'}`)) return response.status(429).json({ error: 'rate_limited' });
+  const roomId = String(request.body?.roomId || '').slice(0, 64).replace(/[^\w-]/g, '');
+  const myId = String(request.body?.myId || '').slice(0, 64).replace(/[^\w-]/g, '');
+  const lines = Array.isArray(request.body?.lines) ? request.body.lines.slice(0, 20) : [];
+  for (const line of lines) {
+    console.info(`[WOAH][diag] room=${roomId} user=${myId} ${String(line).slice(0, 300)}`);
+  }
+  return response.json({ ok: true });
+});
+
 app.use(express.static(resolve(root, 'dist'), {
   maxAge: '1h',
   setHeaders(response, path) {

@@ -1,3 +1,4 @@
+import { diag, setDiagContext } from '../network/diag';
 import { isControlEvent, isRtcSignal, type ControlEvent, type RtcSignal } from '../network/protocol';
 
 export type RoomState = {
@@ -36,6 +37,8 @@ export class UsionRoom {
       connection: 'idle',
     };
     this.emit();
+    setDiagContext({ roomId: launch.roomId, myId });
+    diag('init', { mode: launch.mode, roomId: launch.roomId, roster: this.state.roster });
     const roomId = launch.roomId || this.assignedRoomId;
     if ((launch.mode === 'multiplayer' || this.assignedRoomId) && roomId) await this.join(roomId);
     return this.state;
@@ -46,8 +49,10 @@ export class UsionRoom {
     this.state.roomId = roomId;
     this.state.connection = 'connecting';
     this.emit();
+    setDiagContext({ roomId });
     await Usion.game.connect();
     const joined = await Usion.game.join(roomId) as { player_ids?: string[] } | undefined;
+    diag('joined', { roster: joined?.player_ids });
     if (joined?.player_ids) this.updateRoster(joined.player_ids);
     this.state.connection = 'connected';
     this.emit();
@@ -58,7 +63,8 @@ export class UsionRoom {
     // single lost offer/answer ends the match. action() is acked, retried,
     // and journaled for sync replay. The legacy realtime copy keeps mixed
     // client versions working; receivers dedupe by (pcGeneration, signalSeq).
-    void Usion.game.action('woah_rtc', signal).catch(() => undefined);
+    diag('sig-send', { kind: signal.kind, seq: signal.signalSeq, gen: signal.pcGeneration, to: signal.to.slice(0, 8) });
+    void Usion.game.action('woah_rtc', signal).catch((error) => diag('sig-send-fail', { seq: signal.signalSeq, error: error instanceof Error ? error.message : String(error) }));
     Usion.game.realtime('signal', signal);
   }
 
@@ -99,10 +105,12 @@ export class UsionRoom {
     });
     Usion.game.onRealtime((message) => {
       if (message.action_type !== 'signal' || !isRtcSignal(message.action_data)) return;
+      diag('sig-recv', { via: 'rt', kind: message.action_data.kind, seq: message.action_data.signalSeq, from: message.player_id.slice(0, 8) });
       this.onSignal?.(message.action_data, message.player_id);
     });
     Usion.game.onAction((message) => {
       if (message.action_type === 'woah_rtc' && isRtcSignal(message.action_data)) {
+        diag('sig-recv', { via: 'act', kind: message.action_data.kind, seq: message.action_data.signalSeq, from: message.player_id.slice(0, 8) });
         this.onSignal?.(message.action_data, message.player_id);
         return;
       }
@@ -122,6 +130,7 @@ export class UsionRoom {
     if (!this.state || !Array.isArray(roster)) return;
     const clean = [...new Set(roster.filter((id) => typeof id === 'string' && id))].slice(0, 2);
     if (!clean.includes(this.state.myId)) clean.unshift(this.state.myId);
+    diag('roster', { ids: clean.map((id) => id.slice(0, 8)) });
     this.state.roster = clean;
     this.state.hostId = clean[0] ?? this.state.myId;
     this.emit();

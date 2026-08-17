@@ -1,3 +1,4 @@
+import { diag } from './diag';
 import type { RtcSignal } from './protocol';
 
 type P2POptions = {
@@ -55,9 +56,16 @@ export class P2PCamera {
       this.onRemoteStream?.(this.remoteStream);
     };
     pc.onicecandidate = (event) => this.sendSignal(event.candidate ? 'ice' : 'ice-complete', event.candidate?.toJSON());
+    pc.onicecandidateerror = (event) => {
+      const failure = event as RTCPeerConnectionIceErrorEvent;
+      diag('ice-cand-error', { code: failure.errorCode, url: failure.url, text: String(failure.errorText ?? '').slice(0, 80) });
+    };
+    pc.oniceconnectionstatechange = () => diag('ice-state', { state: pc.iceConnectionState });
+    pc.onicegatheringstatechange = () => diag('ice-gathering', { state: pc.iceGatheringState });
     pc.onconnectionstatechange = () => this.handleConnectionState();
     this.connectionTimer = globalThis.setTimeout(() => {
       if (this.connected) return;
+      void this.reportFailureStats('connect-timeout');
       this.onState?.('unavailable');
       this.closePeer();
     }, CONNECT_TIMEOUT_MS);
@@ -96,9 +104,15 @@ export class P2PCamera {
   }
 
   async handleSignal(signal: RtcSignal): Promise<void> {
-    if (signal.matchId !== this.options.matchId || signal.hostEpoch !== this.options.hostEpoch || signal.to !== this.options.myId) return;
+    if (signal.matchId !== this.options.matchId || signal.hostEpoch !== this.options.hostEpoch || signal.to !== this.options.myId) {
+      diag('sig-drop', { why: 'scope', kind: signal.kind, seq: signal.signalSeq, toMe: signal.to === this.options.myId, match: signal.matchId === this.options.matchId });
+      return;
+    }
     if (!this.options.isHost && signal.kind === 'offer' && signal.pcGeneration >= this.generation) this.generation = signal.pcGeneration;
-    if (signal.pcGeneration !== this.generation) return;
+    if (signal.pcGeneration !== this.generation) {
+      diag('sig-drop', { why: 'gen', kind: signal.kind, seq: signal.signalSeq, got: signal.pcGeneration, want: this.generation });
+      return;
+    }
     if (!this.pc) await this.start();
     const signalKey = `${signal.pcGeneration}:${signal.signalSeq}`;
     if (this.seenRemoteSignals.has(signalKey)) return;
@@ -239,9 +253,30 @@ export class P2PCamera {
     this.recoveryTimer = globalThis.setTimeout(() => {
       this.recoveryTimer = null;
       if (this.connected) return;
+      void this.reportFailureStats('recovery-timeout');
       this.onState?.('unavailable');
       this.closePeer();
     }, RECOVERY_TIMEOUT_MS);
+  }
+
+  // One condensed snapshot of why ICE went nowhere: how many candidates of
+  // each type we gathered, what the peer sent us, and every checked pair.
+  private async reportFailureStats(reason: string): Promise<void> {
+    const pc = this.pc;
+    if (!pc) return;
+    diag('rtc-fail', { reason, conn: pc.connectionState, ice: pc.iceConnectionState, gather: pc.iceGatheringState, signaling: pc.signalingState, remoteSet: Boolean(pc.remoteDescription) });
+    try {
+      const stats = await pc.getStats();
+      const local: Record<string, number> = {};
+      const remote: Record<string, number> = {};
+      const pairs: string[] = [];
+      stats.forEach((report) => {
+        if (report.type === 'local-candidate') local[report.candidateType] = (local[report.candidateType] ?? 0) + 1;
+        else if (report.type === 'remote-candidate') remote[report.candidateType] = (remote[report.candidateType] ?? 0) + 1;
+        else if (report.type === 'candidate-pair' && pairs.length < 6) pairs.push(`${report.state}${report.nominated ? '*' : ''}`);
+      });
+      diag('rtc-fail-stats', { local, remote, pairs });
+    } catch { /* stats are best-effort */ }
   }
 
   private clearRecoveryTimer(): void {
