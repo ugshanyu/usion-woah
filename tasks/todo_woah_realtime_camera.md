@@ -74,7 +74,7 @@
 - [x] Import the user-supplied MP3 into the standalone game with an auditable content hash.
 - [x] Play the bundled song without delaying camera startup, retain the procedural fallback, and preserve host-clock WOAH timing.
 - [x] Add audio-loader regressions and verify the real browser decode/playback path (123.4 s decoded in Chromium).
-- [ ] Publish the bundled-song release to Railway and update the Usion iframe version.
+- [x] Publish the bundled-song release to Railway and update the Usion iframe version (`9879f41`, Railway deployment `5939f783-bbaa-49b5-be82-90f950758b48`).
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
