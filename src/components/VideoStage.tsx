@@ -1,16 +1,18 @@
 import type { RefObject } from 'react';
 
+export const PLAYER_FACING_CAMERA_TRANSFORM = 'scaleX(-1)';
+
 export function VideoStage({ localRef, remoteRef, showRemote, focus = 'local', localLabel, remoteLabel, badge }: { localRef: RefObject<HTMLVideoElement | null>; remoteRef: RefObject<HTMLVideoElement | null>; showRemote: boolean; focus?: 'local' | 'remote'; localLabel: string; remoteLabel: string; badge?: string }) {
   return (
     <div className={`video-stage ${showRemote ? 'duel' : 'solo'} focus-${focus}`}>
       <figure className={`video-tile local ${!showRemote || focus === 'local' ? 'main' : 'pip'}`}>
-        <video ref={localRef} autoPlay muted playsInline aria-label={localLabel} />
+        <video ref={localRef} autoPlay muted playsInline aria-label={localLabel} style={{ transform: PLAYER_FACING_CAMERA_TRANSFORM }} />
         <figcaption>{localLabel}</figcaption>
         {badge && <span className="vision-badge">{badge}</span>}
       </figure>
       {showRemote && (
         <figure className={`video-tile remote ${focus === 'remote' ? 'main' : 'pip'}`}>
-          <video ref={remoteRef} autoPlay playsInline aria-label={remoteLabel} />
+          <video ref={remoteRef} autoPlay playsInline aria-label={remoteLabel} style={{ transform: PLAYER_FACING_CAMERA_TRANSFORM }} />
           <figcaption>{remoteLabel}</figcaption>
         </figure>
       )}

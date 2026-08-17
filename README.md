@@ -27,7 +27,7 @@ four buttons -> cardinal choice + monotonic timestamp ---------- pointer observa
 Usion Share/invite -> authenticated room -> signal/control ------ host verdict
 ```
 
-The local preview is CSS-mirrored, but inference always receives the raw frame. Left/right labels are the photographed player's anatomical directions.
+Both local and remote player-facing camera tiles are mirrored consistently, while inference always receives the raw frame. Left/right labels remain the photographed player's anatomical directions, so the direction visible in either tile matches the button and verdict arrow.
 
 ## Local development
 
