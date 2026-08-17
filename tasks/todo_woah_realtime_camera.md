@@ -28,7 +28,7 @@
 - [ ] Test build under latency, jitter, loss, disconnect, and reconnect.
 - [x] Deploy and verify the public iframe URL on Railway.
 - [x] Add only registry and camera-origin integration to `usionthemobile`.
-- [ ] Verify the real Usion Share -> Join path on two clients/devices.
+- [x] Verify the real Usion Share -> Join path on two clients/devices (confirmed through the production friend flow).
 - [x] Stop treating the initial room state as a reconnect and remove the duplicate Share-path join.
 - [x] Recover the UI and timing state after a bounded P2P ICE restart.
 - [x] Add regressions for solo -> Share auto-join, initial connection state, and P2P recovery.
@@ -75,11 +75,11 @@
 - [x] Play the bundled song without delaying camera startup, retain the procedural fallback, and preserve host-clock WOAH timing.
 - [x] Add audio-loader regressions and verify the real browser decode/playback path (123.4 s decoded in Chromium).
 - [x] Publish the bundled-song release to Railway and update the Usion iframe version (`9879f41`, Railway deployment `5939f783-bbaa-49b5-be82-90f950758b48`).
-- [ ] Replace free-running full-song playback with ten verified per-round WHOA vocal markers.
-- [ ] Schedule each MP3 excerpt so its real vocal onset lands on the shared host-clock target.
-- [ ] Keep the synthetic countdown/WOAH only as an explicit asset/decode/late-schedule fallback.
-- [ ] Add marker, source-offset, target-alignment, late-schedule, and fallback regressions.
-- [ ] Verify the real browser AudioBuffer source path, then publish Railway/Usions production.
+- [x] Replace free-running full-song playback with ten verified per-round WHOA vocal markers.
+- [x] Schedule each MP3 excerpt so its real vocal onset lands on the shared host-clock target.
+- [x] Keep the synthetic countdown/WOAH only as an explicit asset/decode/late-schedule fallback.
+- [x] Add marker, source-offset, target-alignment, late-schedule, and fallback regressions.
+- [x] Verify the real browser AudioBuffer source path, then publish Railway/Usions production (`465e849`, Railway deployment `51e7bdd2-a8fb-4835-9880-a6796e904d02`).
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
