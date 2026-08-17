@@ -63,6 +63,33 @@ describe('P2PCamera signaling', () => {
     expect(sent.filter((signal) => signal.kind === 'answer')).toHaveLength(1);
   });
 
+  it('processes an offer that arrives after a higher-sequence ICE candidate', async () => {
+    vi.stubGlobal('MediaStream', FakeStream);
+    vi.stubGlobal('RTCPeerConnection', FakePeer);
+    const sent: RtcSignal[] = [];
+    const camera = new P2PCamera({
+      myId: 'guest', peerId: 'host', isHost: false, matchId: 'match', hostEpoch: 'epoch',
+      iceServers: [], localStream: new FakeStream() as unknown as MediaStream, sendSignal: (signal) => sent.push(signal),
+    });
+    await camera.start();
+    const candidate: RtcSignal = {
+      ns: 'woah.rtc.v1', to: 'guest', matchId: 'match', hostEpoch: 'epoch', pcGeneration: 0,
+      signalSeq: 2, kind: 'ice', candidate: { candidate: 'candidate:1 1 UDP 1 127.0.0.1 9999 typ host' },
+    };
+    const offer: RtcSignal = {
+      ns: 'woah.rtc.v1', to: 'guest', matchId: 'match', hostEpoch: 'epoch', pcGeneration: 0,
+      signalSeq: 1, kind: 'offer', description: { type: 'offer', sdp: 'offer' },
+    };
+
+    await camera.handleSignal(candidate);
+    await camera.handleSignal(offer);
+    await camera.handleSignal(candidate);
+
+    expect(FakePeer.latest.setRemoteDescription).toHaveBeenCalledOnce();
+    expect(FakePeer.latest.addIceCandidate).toHaveBeenCalledOnce();
+    expect(sent.filter((signal) => signal.kind === 'answer')).toHaveLength(1);
+  });
+
   it('reports an incompatible network when direct P2P cannot connect', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('MediaStream', FakeStream);

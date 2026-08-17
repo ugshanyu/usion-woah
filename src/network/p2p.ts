@@ -20,7 +20,7 @@ export class P2PCamera {
   private pc: RTCPeerConnection | null = null;
   private channel: RTCDataChannel | null = null;
   private signalSeq = 0;
-  private lastRemoteSignalSeq = 0;
+  private readonly seenRemoteSignals = new Set<string>();
   private generation = 0;
   private pendingIce: RTCIceCandidateInit[] = [];
   private disconnectTimer: number | null = null;
@@ -71,11 +71,14 @@ export class P2PCamera {
   }
 
   async handleSignal(signal: RtcSignal): Promise<void> {
-    if (signal.matchId !== this.options.matchId || signal.hostEpoch !== this.options.hostEpoch || signal.to !== this.options.myId || signal.signalSeq <= this.lastRemoteSignalSeq) return;
+    if (signal.matchId !== this.options.matchId || signal.hostEpoch !== this.options.hostEpoch || signal.to !== this.options.myId) return;
     if (!this.options.isHost && signal.kind === 'offer' && signal.pcGeneration >= this.generation) this.generation = signal.pcGeneration;
     if (signal.pcGeneration !== this.generation) return;
     if (!this.pc) await this.start();
-    this.lastRemoteSignalSeq = signal.signalSeq;
+    const signalKey = `${signal.pcGeneration}:${signal.signalSeq}`;
+    if (this.seenRemoteSignals.has(signalKey)) return;
+    this.seenRemoteSignals.add(signalKey);
+    while (this.seenRemoteSignals.size > 512) this.seenRemoteSignals.delete(this.seenRemoteSignals.values().next().value!);
     const pc = this.pc!;
     if (signal.kind === 'offer' && !this.options.isHost && signal.description) {
       await pc.setRemoteDescription(signal.description);
@@ -175,7 +178,7 @@ export class P2PCamera {
     this.channel = null;
     this.pc = null;
     this.pendingIce = [];
-    this.lastRemoteSignalSeq = 0;
+    this.seenRemoteSignals.clear();
   }
 
   private clearConnectionTimer(): void {
