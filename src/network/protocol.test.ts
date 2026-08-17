@@ -22,6 +22,8 @@ describe('network protocol guards', () => {
     const session = { ns: 'woah.control.v1', kind: 'session', eventId: 'session', matchId: 'm', hostEpoch: 'e', hostId: 'host', guestId: 'guest', firstPointerId: 'guest' };
     expect(isControlEvent(session)).toBe(true);
     expect(isControlEvent({ ...session, firstPointerId: 'outsider' })).toBe(false);
+    expect(isControlEvent({ ns: 'woah.control.v1', kind: 'rematch', eventId: 'rematch-host', matchId: 'm', hostEpoch: 'e', playerId: 'host' })).toBe(true);
+    expect(isControlEvent({ ns: 'woah.control.v1', kind: 'rematch', eventId: 'rematch-bad', matchId: 'm', hostEpoch: 'e', playerId: '' })).toBe(false);
     const observation = { ns: 'woah.control.v1', kind: 'observation', eventId: 'observation', matchId: 'm', hostEpoch: 'e', roundId: 1, generation: 1, summary: null, status: 'missing' };
     expect(isControlEvent(observation)).toBe(true);
     expect(isControlEvent({ ...observation, status: 'ok' })).toBe(false);

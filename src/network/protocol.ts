@@ -70,7 +70,16 @@ export type VerdictEvent = {
   nextPointerId: string;
 };
 
-export type ControlEvent = ReadyEvent | SessionEvent | RoundArmEvent | ObservationEvent | VerdictEvent;
+export type RematchEvent = {
+  ns: 'woah.control.v1';
+  kind: 'rematch';
+  eventId: string;
+  matchId: string;
+  hostEpoch: string;
+  playerId: string;
+};
+
+export type ControlEvent = ReadyEvent | SessionEvent | RoundArmEvent | ObservationEvent | VerdictEvent | RematchEvent;
 
 export class EventDeduper {
   private readonly seen = new Map<string, string>();
@@ -103,10 +112,11 @@ export function isRtcSignal(value: unknown): value is RtcSignal {
 export function isControlEvent(value: unknown): value is ControlEvent {
   if (!value || typeof value !== 'object') return false;
   const event = value as Record<string, unknown>;
-  if (event.ns !== 'woah.control.v1' || !bounded(event.eventId, 100) || !['ready', 'session', 'round', 'observation', 'verdict'].includes(String(event.kind ?? ''))) return false;
+  if (event.ns !== 'woah.control.v1' || !bounded(event.eventId, 100) || !['ready', 'session', 'round', 'observation', 'verdict', 'rematch'].includes(String(event.kind ?? ''))) return false;
   if (event.kind === 'ready') return bounded(event.playerId, 128) && bounded(event.playerName, 100) && event.calibrated === true && event.cameraReady === true;
   if (event.kind === 'session') return bounded(event.matchId, 128) && bounded(event.hostEpoch, 128) && bounded(event.hostId, 128) && bounded(event.guestId, 128) && bounded(event.firstPointerId, 128) && event.hostId !== event.guestId && (event.firstPointerId === event.hostId || event.firstPointerId === event.guestId);
   if (!bounded(event.matchId, 128) || !bounded(event.hostEpoch, 128)) return false;
+  if (event.kind === 'rematch') return bounded(event.playerId, 128);
   if (event.kind === 'round') {
     return safeCounter(event.roundId) && safeCounter(event.generation) && bounded(event.pointerId, 128) && bounded(event.lookerId, 128) && event.pointerId !== event.lookerId && finiteTime(event.targetHostMs) && finiteTime(event.deadlineHostMs) && event.deadlineHostMs! > event.targetHostMs!;
   }

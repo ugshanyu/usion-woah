@@ -12,7 +12,7 @@ function summary(role: GestureSummary['role'], direction: GestureSummary['direct
 
 describe('round rules', () => {
   it('requires neutral rearm and uses source capture timestamps', () => {
-    const samples = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2), sample(1040, 'right', 3), sample(1100, 'right', 4)];
+    const samples = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2), sample(1040, 'right', 3), sample(1100, 'right', 4), sample(1160, 'right', 5)];
     const result = summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time + 100, clockSigmaMs: 10 });
     expect(result?.direction).toBe('right');
     expect(result?.onsetHostMs).toBe(1140);
@@ -24,6 +24,7 @@ describe('round rules', () => {
       sample(-300, 'unknown', 2, { facePresent: true, quality: 0 }),
       sample(1040, 'right', 3),
       sample(1100, 'right', 4),
+      sample(1160, 'right', 5),
     ];
     const result = summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 });
     expect(result?.direction).toBe('right');
@@ -35,6 +36,7 @@ describe('round rules', () => {
       sample(-300, 'neutral', 2, { generation: 7 }),
       sample(1040, 'down', 3, { generation: 7 }),
       sample(1100, 'down', 4, { generation: 7 }),
+      sample(1160, 'down', 5, { generation: 7 }),
     ];
     const result = summarizeHeadGesture(samples, {
       roundId: 1,
@@ -54,16 +56,18 @@ describe('round rules', () => {
       sample(-300, 'unknown', 2, { facePresent: false, quality: 0 }),
       sample(1040, 'right', 3),
       sample(1100, 'right', 4),
+      sample(1160, 'right', 5),
     ];
     expect(summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 })).toBeNull();
   });
 
-  it('accepts two stable direction frames at the slow-device cadence', () => {
+  it('accepts three uninterrupted direction frames at the slow-device cadence', () => {
     const samples = [
       sample(-500, 'neutral', 1),
       sample(-300, 'neutral', 2),
       sample(1080, 'right', 3, { confidence: 0.32 }),
       sample(1280, 'right', 4, { confidence: 0.34 }),
+      sample(1480, 'right', 5, { confidence: 0.36 }),
     ];
     const result = summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 });
     expect(result).toMatchObject({ direction: 'right', confidence: 0.32 });
@@ -73,23 +77,23 @@ describe('round rules', () => {
   it('rejects direction frames outside the supported stability gap or 1-before through 3-after WOAH window', () => {
     const neutral = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2)];
     const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
-    expect(summarizeHeadGesture([...neutral, sample(1000, 'up', 3), sample(1241, 'up', 4)], window)).toBeNull();
-    expect(summarizeHeadGesture([...neutral, sample(-1, 'up', 3), sample(50, 'up', 4)], window)).toBeNull();
-    expect(summarizeHeadGesture([...neutral, sample(3900, 'up', 3), sample(4001, 'up', 4)], window)).toBeNull();
+    expect(summarizeHeadGesture([...neutral, sample(1000, 'up', 3), sample(1241, 'up', 4), sample(1300, 'up', 5)], window)).toBeNull();
+    expect(summarizeHeadGesture([...neutral, sample(-1, 'up', 3), sample(50, 'up', 4), sample(100, 'up', 5)], window)).toBeNull();
+    expect(summarizeHeadGesture([...neutral, sample(3900, 'up', 3), sample(3950, 'up', 4), sample(4001, 'up', 5)], window)).toBeNull();
   });
 
   it('accepts stable face evidence when 1 appears or at the exact 3 second boundary', () => {
     const neutral = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2)];
     const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
-    expect(summarizeHeadGesture([...neutral, sample(0, 'left', 3), sample(80, 'left', 4)], window)?.direction).toBe('left');
-    expect(summarizeHeadGesture([...neutral, sample(3900, 'down', 5), sample(4000, 'down', 6)], window)?.direction).toBe('down');
+    expect(summarizeHeadGesture([...neutral, sample(0, 'left', 3), sample(80, 'left', 4), sample(160, 'left', 5)], window)?.direction).toBe('left');
+    expect(summarizeHeadGesture([...neutral, sample(3800, 'down', 5), sample(3900, 'down', 6), sample(4000, 'down', 7)], window)?.direction).toBe('down');
   });
 
   it('locks the first stable direction instead of a stronger later direction', () => {
     const samples = [
       sample(-500, 'neutral', 1), sample(-300, 'neutral', 2),
-      sample(1020, 'right', 3, { confidence: 0.25 }), sample(1080, 'right', 4, { confidence: 0.25 }),
-      sample(1140, 'up', 5, { confidence: 0.7 }), sample(1240, 'up', 6, { confidence: 0.8 }), sample(1340, 'up', 7, { confidence: 0.85 }),
+      sample(1020, 'right', 3, { confidence: 0.25 }), sample(1080, 'right', 4, { confidence: 0.25 }), sample(1140, 'right', 5, { confidence: 0.25 }),
+      sample(1200, 'up', 6, { confidence: 0.7 }), sample(1300, 'up', 7, { confidence: 0.8 }), sample(1400, 'up', 8, { confidence: 0.85 }),
     ];
     const result = summarizeHeadGesture(samples, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 });
     expect(result?.direction).toBe('right');
@@ -97,18 +101,40 @@ describe('round rules', () => {
 
   it('locks the earliest competing direction and rejects stale vision generations', () => {
     const window = { roundId: 1, role: 'looker' as const, generation: 2, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
-    const stale = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2), sample(1040, 'left', 3), sample(1120, 'left', 4)];
+    const stale = [sample(-500, 'neutral', 1), sample(-300, 'neutral', 2), sample(1040, 'left', 3), sample(1120, 'left', 4), sample(1200, 'left', 5)];
     expect(summarizeHeadGesture(stale, window)).toBeNull();
     const ambiguous = [
       sample(-500, 'neutral', 1, { generation: 2 }), sample(-300, 'neutral', 2, { generation: 2 }),
-      sample(1040, 'left', 3, { generation: 2, confidence: 0.7 }), sample(1140, 'left', 4, { generation: 2, confidence: 0.7 }),
-      sample(1240, 'up', 5, { generation: 2, confidence: 0.72 }), sample(1340, 'up', 6, { generation: 2, confidence: 0.72 }),
+      sample(1040, 'left', 3, { generation: 2, confidence: 0.7 }), sample(1140, 'left', 4, { generation: 2, confidence: 0.7 }), sample(1200, 'left', 5, { generation: 2, confidence: 0.7 }),
+      sample(1240, 'up', 6, { generation: 2, confidence: 0.72 }), sample(1340, 'up', 7, { generation: 2, confidence: 0.72 }), sample(1440, 'up', 8, { generation: 2, confidence: 0.72 }),
     ];
     expect(summarizeHeadGesture(ambiguous, window)?.direction).toBe('left');
   });
 
+  it('never joins non-consecutive vertical frames across a side artifact', () => {
+    const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
+    const returning = [
+      sample(-500, 'neutral', 1), sample(-300, 'neutral', 2),
+      sample(1040, 'down', 3), sample(1120, 'right', 4), sample(1200, 'down', 5), sample(1280, 'right', 6), sample(1360, 'down', 7),
+    ];
+    expect(summarizeHeadGesture(returning, window)).toBeNull();
+  });
+
+  it('does not replace a partially established vertical turn with return-motion side frames', () => {
+    const window = { roundId: 1, role: 'looker' as const, generation: 1, targetLocalMs: 1000, toHostTime: (time: number) => time, clockSigmaMs: 10 };
+    const returning = [
+      sample(-500, 'neutral', 1), sample(-300, 'neutral', 2),
+      sample(1040, 'down', 3), sample(1120, 'down', 4),
+      sample(1200, 'right', 5), sample(1280, 'right', 6), sample(1360, 'right', 7),
+    ];
+    expect(summarizeHeadGesture(returning, window)).toBeNull();
+    expect(summarizeHeadGesture([
+      ...returning.slice(0, 4), sample(1180, 'down', 5), sample(1260, 'right', 6), sample(1340, 'right', 7),
+    ], window)?.direction).toBe('down');
+  });
+
   it('voids held head turns and low clock quality', () => {
-    const held = [sample(-500, 'right', 1), sample(-300, 'right', 2), sample(40, 'right', 3), sample(100, 'right', 4)];
+    const held = [sample(-500, 'right', 1), sample(-300, 'right', 2), sample(40, 'right', 3), sample(100, 'right', 4), sample(160, 'right', 5)];
     expect(summarizeHeadGesture(held, { roundId: 1, role: 'looker', generation: 1, targetLocalMs: 1000, toHostTime: (time) => time, clockSigmaMs: 10 })).toBeNull();
     expect(judgeRound(1, { ...summary('pointer', 'left'), clockSigmaMs: 51 }, summary('looker', 'right')).verdict).toBe('void');
   });

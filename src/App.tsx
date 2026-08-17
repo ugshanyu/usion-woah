@@ -3,6 +3,7 @@ import { CameraController, type CameraState } from './camera/camera';
 import { CalibrationOverlay } from './components/CalibrationOverlay';
 import { Scoreboard } from './components/Scoreboard';
 import { DirectionPad } from './components/DirectionPad';
+import { RematchControl } from './components/RematchControl';
 import { VideoStage } from './components/VideoStage';
 import { MatchController, type MatchView } from './game/match-controller';
 import { matchOutcome } from './game/match-format';
@@ -17,7 +18,7 @@ import { SampleBuffer } from './vision/sample-buffer';
 type AppPhase = 'boot' | 'intro' | 'calibration' | 'play' | 'error';
 type SetupFailure = 'camera-denied' | 'camera-error' | 'vision-error' | null;
 
-const initialMatch: MatchView = { phase: 'waiting', peerName: null, localReady: false, peerReady: false, role: null, targetLocalMs: null, roundId: 0, score: {}, result: null, rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY };
+const initialMatch: MatchView = { phase: 'waiting', peerName: null, localReady: false, peerReady: false, role: null, targetLocalMs: null, roundId: 0, score: {}, result: null, rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY, rematchLocalReady: false, rematchPeerReady: false };
 
 export default function App() {
   const localVideo = useRef<HTMLVideoElement>(null);
@@ -211,7 +212,7 @@ export default function App() {
           {phase === 'calibration' && modelStatus === 'loading' && <div className="toast">{t('models')}</div>}
           {modelStatus === 'slow' && <div className="toast warning">{t('slow')}</div>}
           {phase === 'play' && matchView.phase === 'countdown' && matchView.role === 'pointer' && <DirectionPad roundId={matchView.roundId} expired={(countdown ?? 0) <= 0} onChoose={(choice) => match.submitDirection(choice)} t={t} />}
-          {phase === 'play' && <MatchOverlay view={matchView} hasRoom={Boolean(roomState?.roomId)} cue={cue} countdown={countdown} myId={roomState?.myId ?? null} peerId={peerId} t={t} />}
+          {phase === 'play' && <MatchOverlay view={matchView} hasRoom={Boolean(roomState?.roomId)} cue={cue} countdown={countdown} myId={roomState?.myId ?? null} peerId={peerId} onRematch={() => match.requestRematch()} t={t} />}
         </>
       )}
       <div className="sr-only" aria-live="assertive">{cue === 'WOAH' ? 'WOAH' : ''}</div>
@@ -219,7 +220,7 @@ export default function App() {
   );
 }
 
-function MatchOverlay({ view, hasRoom, cue, countdown, myId, peerId, t }: { view: MatchView; hasRoom: boolean; cue: string | null; countdown: number | null; myId: string | null; peerId: string | null; t: ReturnType<typeof translator> }) {
+function MatchOverlay({ view, hasRoom, cue, countdown, myId, peerId, onRematch, t }: { view: MatchView; hasRoom: boolean; cue: string | null; countdown: number | null; myId: string | null; peerId: string | null; onRematch: () => boolean; t: ReturnType<typeof translator> }) {
   if (view.phase === 'countdown') {
     const progress = Math.max(0, Math.min(1, (countdown ?? 0) / 3000));
     return <div className={`cue ${cue === 'WOAH' ? 'woah' : ''}`}><strong>{view.role === 'pointer' ? t('pointer') : t('looker')}</strong><span>{cue}</span><p>{view.role === 'pointer' ? t('pointerHint') : t('lookerHint')}</p><div className="countdown-track"><i style={{ transform: `scaleX(${progress})` }} /></div></div>;
@@ -233,7 +234,7 @@ function MatchOverlay({ view, hasRoom, cue, countdown, myId, peerId, t }: { view
     const comparison = resultDirectionComparison(view.result);
     const outcome = view.phase === 'gameover' && myId && peerId ? matchOutcome(view.score, myId, peerId) : null;
     const title = outcome === 'win' ? t('youWin') : outcome === 'lose' ? t('youLose') : outcome === 'draw' ? t('draw') : t(verdict);
-    return <div className={`result-card ${verdict}`}><h2>{title}</h2>{view.phase === 'gameover' && <div className="gameover-label">{t('gameover')}</div>}{comparison && <div className="result-comparison" aria-label={`${t('guessLabel')} ${comparison.guess}, ${t('faceLabel')} ${comparison.face}`}><span><small>{t('guessLabel')}</small><b>{comparison.guess}</b></span><strong>{comparison.operator}</strong><span><small>{t('faceLabel')}</small><b>{comparison.face}</b></span></div>}<p>{t(`${verdict}Detail` as 'hitDetail' | 'dodgeDetail' | 'penaltyDetail' | 'voidDetail')}</p></div>;
+    return <div className={`result-card ${verdict}`}><h2>{title}</h2>{view.phase === 'gameover' && <div className="gameover-label">{t('gameover')}</div>}{comparison && <div className="result-comparison" aria-label={`${t('guessLabel')} ${comparison.guess}, ${t('faceLabel')} ${comparison.face}`}><span><small>{t('guessLabel')}</small><b>{comparison.guess}</b></span><strong>{comparison.operator}</strong><span><small>{t('faceLabel')}</small><b>{comparison.face}</b></span></div>}<p>{t(`${verdict}Detail` as 'hitDetail' | 'dodgeDetail' | 'penaltyDetail' | 'voidDetail')}</p>{view.phase === 'gameover' && view.result && <RematchControl localReady={view.rematchLocalReady} peerReady={view.rematchPeerReady} onRematch={onRematch} t={t} />}</div>;
   }
   const key = view.phase === 'connecting' ? 'connecting' : view.phase === 'syncing' ? 'syncing' : view.phase === 'reconnecting' ? 'reconnecting' : view.phase === 'network-error' ? 'networkUnsupported' : !hasRoom ? 'share' : view.peerReady ? 'opponentReady' : 'waiting';
   return <div className="status-card">{t(key)}</div>;

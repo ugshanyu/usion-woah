@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HeadFeature } from '../game/types';
-import { AUTOMATIC_PITCH_RANGE_RAD, AUTOMATIC_YAW_RANGE_RAD, buildNeutralHeadCalibration, classifyHead } from './head-classifier';
+import { AUTOMATIC_PITCH_RANGE_RAD, AUTOMATIC_YAW_RANGE_RAD, buildNeutralHeadCalibration, classifyHead, HORIZONTAL_ENTRY_THRESHOLD, VERTICAL_ENTRY_THRESHOLD } from './head-classifier';
 
 function feature(x: number, y: number, overrides: Partial<HeadFeature> = {}): HeadFeature {
   return { x, y, roll: 0, landmarkX: x, landmarkY: y, source: 'matrix', orientationQuality: 1, faceWidth: 0.32, clipped: false, finite: true, ...overrides };
@@ -40,6 +40,13 @@ describe('automatic neutral head calibration and classification', () => {
     expect(classifyHead(feature(0.3, 0.2), calibration).direction).toBe('unknown');
     expect(classifyHead(feature(0.3, -0.04, { clipped: true }), calibration).direction).toBe('unknown');
     expect(classifyHead(feature(0.3, -0.04, { roll: Math.PI / 4 }), calibration).direction).toBe('unknown');
+  });
+
+  it('does not call incidental return-motion yaw a horizontal turn', () => {
+    expect(HORIZONTAL_ENTRY_THRESHOLD).toBeGreaterThan(VERTICAL_ENTRY_THRESHOLD);
+    expect(classifyHead(feature(0.26, -0.04), calibration).direction).toBe('unknown');
+    expect(classifyHead(feature(0.08, -0.18), calibration).direction).toBe('down');
+    expect(classifyHead(feature(0.08, 0.1), calibration).direction).toBe('up');
   });
 
   it('keeps the 3D matrix direction when the lower-fidelity image landmark proxy disagrees', () => {

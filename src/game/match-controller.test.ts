@@ -3,7 +3,7 @@ import type { UsionRoom } from '../platform/room';
 import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
 import { MatchController, type MatchView } from './match-controller';
-import type { ObservationEvent, RoundArmEvent, SessionEvent, VerdictEvent } from '../network/protocol';
+import type { ControlEvent, ObservationEvent, RoundArmEvent, SessionEvent, VerdictEvent } from '../network/protocol';
 import type { DirectionChoice, DirectionSample } from './types';
 
 function createMatch() {
@@ -48,7 +48,8 @@ function createRecognitionMatch() {
     currentChoice: DirectionChoice | null;
     localObservationSent: boolean;
     session: SessionEvent | null;
-    clock: { hostToLocal: (time: number) => number; localToHost: (time: number) => number; uncertaintyMs: number } | null;
+    p2p: { sendControl: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null;
+    clock: { hostToLocal: (time: number) => number; localToHost: (time: number) => number; uncertaintyMs: number; reset: () => void } | null;
     trySendLookerObservation: (event: RoundArmEvent, targetLocalMs: number, timedOut: boolean, showJudging?: boolean) => void;
     openObservationWindow: (event: RoundArmEvent, role: 'pointer' | 'looker', targetLocalMs: number) => void;
     acceptObservation: (event: ObservationEvent, senderId: string) => void;
@@ -59,7 +60,7 @@ function createRecognitionMatch() {
   internals.currentRound = round;
   internals.currentVisionGeneration = 1;
   internals.session = session;
-  internals.clock = { hostToLocal: (time) => time, localToHost: (time) => time, uncertaintyMs: 10 };
+  internals.clock = { hostToLocal: (time) => time, localToHost: (time) => time, uncertaintyMs: 10, reset: vi.fn() };
   return { match, samples, sendControl, reportResult, round, internals };
 }
 
@@ -122,19 +123,19 @@ describe('MatchController connection lifecycle', () => {
 
   it('sends the looker observation immediately when stable post-WOAH evidence arrives', () => {
     const { match, samples, sendControl } = createRecognitionMatch();
-    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(1080, 'up', 3)]) {
+    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(1080, 'up', 3), directionSample(1200, 'up', 4)]) {
       samples.push(item);
       match.handleVisionSample(item);
     }
     expect(sendControl).not.toHaveBeenCalled();
 
-    const recognized = directionSample(1200, 'up', 4);
+    const recognized = directionSample(1320, 'up', 5);
     samples.push(recognized);
     match.handleVisionSample(recognized);
     expect(sendControl).toHaveBeenCalledTimes(1);
     expect(sendControl.mock.calls[0][0]).toMatchObject({ kind: 'observation', status: 'ok', summary: { role: 'looker', direction: 'up' } });
 
-    const duplicate = directionSample(1300, 'up', 5);
+    const duplicate = directionSample(1400, 'up', 6);
     samples.push(duplicate);
     match.handleVisionSample(duplicate);
     expect(sendControl).toHaveBeenCalledTimes(1);
@@ -149,6 +150,7 @@ describe('MatchController connection lifecycle', () => {
       directionSample(-300, 'neutral', 2),
       directionSample(0, 'right', 3),
       directionSample(100, 'right', 4),
+      directionSample(200, 'right', 5),
     ]) {
       samples.push(item);
       match.handleVisionSample(item);
@@ -165,6 +167,7 @@ describe('MatchController connection lifecycle', () => {
       directionSample(-300, 'neutral', 2, 7),
       directionSample(1080, 'left', 3, 7),
       directionSample(1180, 'left', 4, 7),
+      directionSample(1280, 'left', 5, 7),
     ]) {
       samples.push(item);
       match.handleVisionSample(item);
@@ -189,11 +192,11 @@ describe('MatchController connection lifecycle', () => {
 
   it('accepts delayed evidence at 3 seconds and times out only after the recognition window', () => {
     const delayed = createRecognitionMatch();
-    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(3900, 'right', 3), directionSample(4000, 'right', 4)]) {
+    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(3800, 'right', 3), directionSample(3900, 'right', 4), directionSample(4000, 'right', 5)]) {
       delayed.samples.push(item);
       delayed.match.handleVisionSample(item);
     }
-    expect(delayed.sendControl.mock.calls[0][0]).toMatchObject({ status: 'ok', summary: { direction: 'right', onsetHostMs: 3900 } });
+    expect(delayed.sendControl.mock.calls[0][0]).toMatchObject({ status: 'ok', summary: { direction: 'right', onsetHostMs: 3800 } });
 
     const missing = createRecognitionMatch();
     missing.samples.push(directionSample(-500, 'neutral', 1));
@@ -208,7 +211,7 @@ describe('MatchController connection lifecycle', () => {
     const { match, samples, internals, round } = createRecognitionMatch();
     const finalize = vi.fn();
     internals.finalizeRound = finalize;
-    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(1100, 'left', 3), directionSample(1200, 'left', 4)]) {
+    for (const item of [directionSample(-500, 'neutral', 1), directionSample(-300, 'neutral', 2), directionSample(1100, 'left', 3), directionSample(1200, 'left', 4), directionSample(1300, 'left', 5)]) {
       samples.push(item);
       match.handleVisionSample(item);
     }
@@ -251,6 +254,42 @@ describe('MatchController connection lifecycle', () => {
     internals.acceptVerdict(verdictForRound(10, { host: 3, guest: 3 }, 'host'), 'host');
     expect(views.at(-1)?.phase).toBe('gameover');
     expect(reportResult).toHaveBeenCalledWith(null, { host: 3, guest: 3 }, 'match');
+  });
+
+  it('starts a fresh authoritative session only after both players request a rematch', async () => {
+    const { match, sendControl, round, internals } = createRecognitionMatch();
+    const views: MatchView[] = [];
+    match.onView = (view) => views.push(view);
+    const peerSend = vi.fn<(event: ControlEvent) => boolean>(() => true);
+    const peerClose = vi.fn();
+    internals.p2p = { sendControl: peerSend, close: peerClose };
+    round.roundId = 10;
+    internals.acceptVerdict(verdictForRound(10, { host: 4, guest: 3 }, 'host'), 'host');
+    const previousMatchId = internals.session!.matchId;
+
+    expect(match.requestRematch()).toBe(true);
+    expect(match.requestRematch()).toBe(false);
+    expect(views.at(-1)).toMatchObject({ phase: 'gameover', rematchLocalReady: true, rematchPeerReady: false });
+    expect(sendControl.mock.calls.filter(([event]) => event.kind === 'session')).toHaveLength(0);
+
+    match.handleControl({
+      ns: 'woah.control.v1', kind: 'rematch', eventId: 'spoofed-rematch',
+      matchId: previousMatchId, hostEpoch: 'epoch', playerId: 'host',
+    }, 'guest');
+    expect(views.at(-1)?.rematchPeerReady).toBe(false);
+
+    match.handleControl({
+      ns: 'woah.control.v1', kind: 'rematch', eventId: 'guest-rematch',
+      matchId: previousMatchId, hostEpoch: 'epoch', playerId: 'guest',
+    }, 'guest');
+    await vi.waitFor(() => expect(internals.session?.matchId).not.toBe(previousMatchId));
+    expect(peerSend.mock.calls.some(([event]) => event.kind === 'session')).toBe(true);
+    expect(peerClose).toHaveBeenCalledOnce();
+    expect(sendControl.mock.calls.filter(([event]) => event.kind === 'session')).toHaveLength(1);
+    expect(views.at(-1)).toMatchObject({
+      phase: 'connecting', roundId: 0, score: { host: 0, guest: 0 }, result: null,
+      rematchLocalReady: false, rematchPeerReady: false,
+    });
   });
 });
 

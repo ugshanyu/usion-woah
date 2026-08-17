@@ -1,5 +1,5 @@
 import type { DirectionChoice, DirectionSample, GestureSummary, ObservationStatus, Role, RoundResult, Score } from './types';
-import { HEAD_ACTIVE_END_MS, HEAD_ACTIVE_START_MS, HEAD_NEUTRAL_END_MS, HEAD_NEUTRAL_START_MS, HEAD_PEAK_WINDOW_MS, HEAD_STABLE_MAX_GAP_MS } from './timing';
+import { HEAD_ACTIVE_END_MS, HEAD_ACTIVE_START_MS, HEAD_NEUTRAL_END_MS, HEAD_NEUTRAL_START_MS, HEAD_PEAK_WINDOW_MS, HEAD_STABLE_MAX_GAP_MS, HEAD_STABLE_SAMPLE_COUNT } from './timing';
 
 const CARDINAL = new Set(['up', 'down', 'left', 'right']);
 export const POINTER_GUESS_LEAD_MS = 3500;
@@ -23,33 +23,42 @@ export function summarizeHeadGesture(samples: DirectionSample[], window: Gesture
       && (sample.facePresent ?? sample.direction !== 'unknown'))
     .slice(-3);
   if (preBeat.length < 2) return null;
-  const active = currentGeneration.filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_ACTIVE_START_MS && sample.capturePerfMs <= window.targetLocalMs + HEAD_ACTIVE_END_MS && CARDINAL.has(sample.direction) && sample.quality >= 0.6);
-  const candidates = [...CARDINAL].map((direction) => {
-    if (preBeat.filter((sample) => sample.direction !== direction).length < 2) return null;
-    const support = active.filter((sample) => sample.direction === direction);
-    const pair = support.flatMap((first, index) => support.slice(index + 1).map((second) => [first, second] as const))
-      .find(([first, second]) => second.capturePerfMs - first.capturePerfMs <= HEAD_STABLE_MAX_GAP_MS);
-    if (!pair) return null;
-    const averageConfidence = support.reduce((sum, sample) => sum + sample.confidence, 0) / support.length;
-    return { direction, support, pair, averageConfidence, recognizedAt: pair[1].capturePerfMs };
-  }).filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
-    .sort((left, right) => left.recognizedAt - right.recognizedAt
-      || left.pair[0].capturePerfMs - right.pair[0].capturePerfMs
-      || right.averageConfidence - left.averageConfidence);
-  const winner = candidates[0];
+  const active = currentGeneration
+    .filter((sample) => sample.capturePerfMs >= window.targetLocalMs + HEAD_ACTIVE_START_MS && sample.capturePerfMs <= window.targetLocalMs + HEAD_ACTIVE_END_MS)
+    .sort((left, right) => left.capturePerfMs - right.capturePerfMs || left.frameSeq - right.frameSeq);
+  let run: DirectionSample[] = [];
+  let committedDirection: DirectionSample['direction'] | null = null;
+  let winner: { direction: DirectionSample['direction']; support: DirectionSample[] } | null = null;
+  for (const sample of active) {
+    const previous = run.at(-1);
+    if (!CARDINAL.has(sample.direction) || sample.quality < 0.6) {
+      run = [];
+      continue;
+    }
+    run = previous?.direction === sample.direction && sample.capturePerfMs - previous.capturePerfMs <= HEAD_STABLE_MAX_GAP_MS
+      ? [...run, sample]
+      : [sample];
+    const rearmed = preBeat.filter((item) => item.direction !== sample.direction).length >= 2;
+    if (!committedDirection && rearmed && run.length >= HEAD_STABLE_SAMPLE_COUNT - 1) committedDirection = sample.direction;
+    if (rearmed && committedDirection === sample.direction && run.length >= HEAD_STABLE_SAMPLE_COUNT) {
+      winner = { direction: sample.direction, support: run };
+      break;
+    }
+  }
   if (!winner) return null;
 
-  const [first, second] = winner.pair;
+  const first = winner.support[0];
+  const stable = winner.support.slice(0, HEAD_STABLE_SAMPLE_COUNT);
   const peak = winner.support
     .filter((sample) => sample.capturePerfMs >= first.capturePerfMs && sample.capturePerfMs <= first.capturePerfMs + HEAD_PEAK_WINDOW_MS)
-    .sort((left, right) => right.confidence - left.confidence)[0] ?? second;
+    .sort((left, right) => right.confidence - left.confidence)[0] ?? stable.at(-1)!;
   return {
     roundId: window.roundId,
     role: window.role,
     direction: first.direction,
     onsetHostMs: window.toHostTime(first.capturePerfMs),
     peakHostMs: window.toHostTime(peak.capturePerfMs),
-    confidence: Math.min(first.confidence, second.confidence),
+    confidence: Math.min(...stable.map((sample) => sample.confidence)),
     clockSigmaMs: window.clockSigmaMs,
     frameSeq: peak.frameSeq,
     generation: window.generation,

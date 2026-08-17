@@ -17,6 +17,7 @@ export const HEAD_ACTIVE_END_MS = 3000;
 // The detector may intentionally sample every 160 ms on a slower phone.
 // Leave one video-frame/scheduling margin before rejecting stable evidence.
 export const HEAD_STABLE_MAX_GAP_MS = VISION_MAX_INTERVAL_MS + 80;
+export const HEAD_STABLE_SAMPLE_COUNT = 3;
 export const HEAD_PEAK_WINDOW_MS = 180;
 
 // The visible "1" opens recognition and WOAH leaves three more seconds. The

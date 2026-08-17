@@ -77,6 +77,8 @@ app.get('/health', (_, response) => response.json({
   stunServerCount: stunUrls.length,
   visionMode: 'face-only',
   calibrationMode: 'neutral-only',
+  directionEntryFrames: 2,
+  directionStabilityFrames: 3,
   pointerInput: 'four-buttons',
   audioMode: 'round-synced-real-vocal-with-synthetic-fallback',
   soundtrackSha256: '8FE25C5D5854494299593B6D7FCB98874B71B755A939AD7044E45B05B2C1D167',
@@ -86,6 +88,7 @@ app.get('/health', (_, response) => response.json({
   turnMode: 'fixed-five-round-blocks',
   roundsPerPointer: 5,
   totalRounds: 10,
+  rematchMode: 'two-player-consent-fresh-session',
 }));
 
 app.post('/api/ice', async (request, response) => {

@@ -2,7 +2,7 @@ import { CuePlayer } from '../audio/cue';
 import { fetchIceServers } from '../network/ice';
 import { ClockSync, isClockMessage, type ClockMessage, type ClockReady } from '../network/clock-sync';
 import { P2PCamera } from '../network/p2p';
-import { EventDeduper, isControlEvent, type ControlEvent, type ObservationEvent, type ReadyEvent, type RoundArmEvent, type RtcSignal, type SessionEvent, type VerdictEvent } from '../network/protocol';
+import { EventDeduper, isControlEvent, type ControlEvent, type ObservationEvent, type ReadyEvent, type RematchEvent, type RoundArmEvent, type RtcSignal, type SessionEvent, type VerdictEvent } from '../network/protocol';
 import type { UsionRoom } from '../platform/room';
 import type { VisionInference } from '../vision/inference';
 import { SampleBuffer } from '../vision/sample-buffer';
@@ -37,7 +37,9 @@ export class MatchController {
   private platformRecovering = false;
   private rtcConnectedOnce = false;
   private rtcRecovering = false;
-  private view: MatchView = { phase: 'waiting', peerName: null, localReady: false, peerReady: false, role: null, targetLocalMs: null, roundId: 0, score: {}, result: null, rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY };
+  private readonly rematchRequests = new Set<string>();
+  private rematchStarting = false;
+  private view: MatchView = { phase: 'waiting', peerName: null, localReady: false, peerReady: false, role: null, targetLocalMs: null, roundId: 0, score: {}, result: null, rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY, rematchLocalReady: false, rematchPeerReady: false };
 
   onView: ((view: MatchView) => void) | null = null;
   onRemoteStream: ((stream: MediaStream) => void) | null = null;
@@ -63,6 +65,17 @@ export class MatchController {
     const targetLocalMs = this.clock.hostToLocal(round.targetHostMs);
     if (this.clock.uncertaintyMs > 50 || !isDirectionChoiceInWindow(choice, targetLocalMs)) return false;
     this.currentChoice = choice;
+    return true;
+  }
+
+  requestRematch(): boolean {
+    const room = this.requireRoom();
+    if (this.view.phase !== 'gameover' || !this.session || this.rematchRequests.has(room.myId) || room.roster.length !== 2) return false;
+    const event: RematchEvent = {
+      ns: 'woah.control.v1', kind: 'rematch', eventId: crypto.randomUUID(),
+      matchId: this.session.matchId, hostEpoch: this.session.hostEpoch, playerId: room.myId,
+    };
+    void this.sendEssential(event);
     return true;
   }
 
@@ -104,13 +117,15 @@ export class MatchController {
     }
     if (event.kind === 'session') {
       if (senderId !== room.hostId || event.hostId !== senderId || !room.roster.includes(event.guestId)) return;
-      this.session = event;
-      this.view.score = Object.fromEntries(room.roster.map((id) => [id, 0]));
-      this.emit({ phase: 'connecting' });
-      void this.setupP2P().catch(() => this.emit({ phase: 'network-error', rtcState: 'unavailable' }));
+      this.acceptSession(event);
       return;
     }
     if (!this.session || ('matchId' in event && event.matchId !== this.session.matchId) || ('hostEpoch' in event && event.hostEpoch !== this.session.hostEpoch)) return;
+    if (event.kind === 'rematch') {
+      if (event.playerId !== senderId) return;
+      this.acceptRematch(senderId);
+      return;
+    }
     if (event.kind !== 'observation' && senderId !== room.hostId) return;
     if (event.kind === 'round') this.armRound(event);
     else if (event.kind === 'observation') this.acceptObservation(event, senderId);
@@ -135,7 +150,7 @@ export class MatchController {
     this.platformRecovering = false;
     this.resetTransport();
     this.ready.clear();
-    this.emit({ phase: 'waiting' });
+    this.emit({ phase: 'waiting', rematchLocalReady: false, rematchPeerReady: false });
     if (this.localStream) await this.markLocalReady(this.localStream);
   }
 
@@ -150,7 +165,7 @@ export class MatchController {
     this.ready.clear();
     this.localStream = null;
     this.cue.stopSoundtrack();
-    this.emit({ phase: 'waiting', localReady: false, peerReady: false, role: null, targetLocalMs: null });
+    this.emit({ phase: 'waiting', localReady: false, peerReady: false, role: null, targetLocalMs: null, rematchLocalReady: false, rematchPeerReady: false });
   }
 
   destroy(): void {
@@ -163,6 +178,46 @@ export class MatchController {
     if (room.hostId !== room.myId || room.roster.length !== 2 || room.roster.some((id) => !this.ready.get(id)?.calibrated) || this.session) return;
     const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
     const session: SessionEvent = { ns: 'woah.control.v1', kind: 'session', eventId: crypto.randomUUID(), matchId: crypto.randomUUID(), hostEpoch: crypto.randomUUID(), hostId: room.myId, guestId: room.roster.find((id) => id !== room.myId)!, firstPointerId: chooseFirstPointer(room.roster, randomValue) };
+    await this.sendEssential(session);
+  }
+
+  private acceptSession(event: SessionEvent): void {
+    if (this.session?.matchId === event.matchId && this.session.hostEpoch === event.hostEpoch) return;
+    if (this.session && this.view.phase !== 'gameover') return;
+    if (this.session) this.resetTransport();
+    const room = this.requireRoom();
+    this.session = event;
+    this.rematchRequests.clear();
+    this.rematchStarting = false;
+    this.emit({
+      phase: 'connecting', role: null, targetLocalMs: null, roundId: 0,
+      score: Object.fromEntries(room.roster.map((id) => [id, 0])), result: null,
+      rtcState: 'new', clockUncertaintyMs: Number.POSITIVE_INFINITY,
+      rematchLocalReady: false, rematchPeerReady: false,
+    });
+    void this.setupP2P().catch(() => this.emit({ phase: 'network-error', rtcState: 'unavailable' }));
+  }
+
+  private acceptRematch(playerId: string): void {
+    const room = this.requireRoom();
+    if (this.view.phase !== 'gameover' || !this.session || !room.roster.includes(playerId)) return;
+    this.rematchRequests.add(playerId);
+    const peerId = this.peerId();
+    this.emit({ rematchLocalReady: this.rematchRequests.has(room.myId), rematchPeerReady: Boolean(peerId && this.rematchRequests.has(peerId)) });
+    if (room.myId === this.session.hostId && room.roster.every((id) => this.rematchRequests.has(id))) void this.startRematch();
+  }
+
+  private async startRematch(): Promise<void> {
+    const room = this.requireRoom();
+    const previous = this.session;
+    if (!previous || room.myId !== previous.hostId || this.rematchStarting || room.roster.length !== 2) return;
+    this.rematchStarting = true;
+    const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
+    const session: SessionEvent = {
+      ns: 'woah.control.v1', kind: 'session', eventId: crypto.randomUUID(),
+      matchId: crypto.randomUUID(), hostEpoch: crypto.randomUUID(), hostId: previous.hostId,
+      guestId: room.roster.find((id) => id !== previous.hostId)!, firstPointerId: chooseFirstPointer(room.roster, randomValue),
+    };
     await this.sendEssential(session);
   }
 
@@ -380,8 +435,10 @@ export class MatchController {
   }
 
   private async sendEssential(event: ControlEvent): Promise<void> {
+    const currentPeer = this.p2p;
+    if (event.kind === 'session') currentPeer?.sendControl(event);
     this.handleControl(event, this.requireRoom().myId);
-    this.p2p?.sendControl(event);
+    if (event.kind !== 'session') this.p2p?.sendControl(event);
     await this.room.sendControl(event).catch(() => undefined);
   }
 
@@ -419,6 +476,8 @@ export class MatchController {
     this.pendingSignals = [];
     this.rtcConnectedOnce = false;
     this.rtcRecovering = false;
+    this.rematchRequests.clear();
+    this.rematchStarting = false;
   }
 
   private pauseForRtcRecovery(): void {

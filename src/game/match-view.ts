@@ -14,6 +14,8 @@ export type MatchView = {
   result: RoundResult | null;
   rtcState: string;
   clockUncertaintyMs: number;
+  rematchLocalReady: boolean;
+  rematchPeerReady: boolean;
 };
 
 export function focusedCamera(role: Role | null): 'local' | 'remote' {

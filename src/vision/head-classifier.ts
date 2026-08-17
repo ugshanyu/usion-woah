@@ -8,6 +8,8 @@ export const MIN_FACE_WIDTH = 0.1;
 export const MAX_FACE_WIDTH = 0.9;
 export const AUTOMATIC_YAW_RANGE_RAD = 22 * Math.PI / 180;
 export const AUTOMATIC_PITCH_RANGE_RAD = 15 * Math.PI / 180;
+export const HORIZONTAL_ENTRY_THRESHOLD = 0.55;
+export const VERTICAL_ENTRY_THRESHOLD = 0.5;
 const LANDMARK_CONTRADICTION_THRESHOLD = 0.025;
 
 export function isUsableHeadFeature(feature: HeadFeature): boolean {
@@ -101,10 +103,11 @@ export function classifyHead(feature: HeadFeature, calibration: HeadCalibration,
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]) as [Exclude<Direction, 'neutral' | 'unknown'>, number][];
   const [direction, winner] = ranked[0];
   const runnerUp = ranked[1][1];
-  const threshold = previous === direction ? 0.32 : 0.45;
-  const absolute = direction === 'left' || direction === 'right' ? Math.abs(projected.x) : Math.abs(projected.y);
-  const orthogonal = direction === 'left' || direction === 'right' ? Math.abs(projected.y) : Math.abs(projected.x);
-  const minimum = (direction === 'left' || direction === 'right' ? 7 : 5.5) * Math.PI / 180;
+  const horizontal = direction === 'left' || direction === 'right';
+  const threshold = previous === direction ? 0.34 : horizontal ? HORIZONTAL_ENTRY_THRESHOLD : VERTICAL_ENTRY_THRESHOLD;
+  const absolute = horizontal ? Math.abs(projected.x) : Math.abs(projected.y);
+  const orthogonal = horizontal ? Math.abs(projected.y) : Math.abs(projected.x);
+  const minimum = (horizontal ? 7 : 5.5) * Math.PI / 180;
   if (winner < threshold) return winner < 0.22 ? { direction: 'neutral', confidence: 1 - winner / 0.22, quality: 1 } : UNKNOWN;
   if (absolute < minimum) return UNKNOWN;
   if (runnerUp > winner * 0.65) return UNKNOWN;

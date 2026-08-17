@@ -1,6 +1,7 @@
 import type { DirectionSample, HeadCalibration, HeadFeature } from '../game/types';
 import { VISION_MAX_INTERVAL_MS, VISION_MIN_INTERVAL_MS, VISION_SLOW_P95_MS } from '../game/timing';
 import { classifyHead, isUsableHeadFeature } from './head-classifier';
+import { advanceDirectionLatch, EMPTY_DIRECTION_LATCH, type DirectionLatchState } from './direction-latch';
 
 function angleDelta(left: number, right: number): number {
   return Math.atan2(Math.sin(left - right), Math.cos(left - right));
@@ -24,7 +25,7 @@ export class VisionInference {
   private running = false;
   private lastSubmittedAt = 0;
   private intervalMs = 66;
-  private previousDirection: DirectionSample['direction'] = 'neutral';
+  private directionLatch: DirectionLatchState = EMPTY_DIRECTION_LATCH;
   private calibration: HeadCalibration | null = null;
   private previousHeadFeature: HeadFeature | null = null;
   private readonly inferenceHistory: number[] = [];
@@ -84,7 +85,7 @@ export class VisionInference {
 
   beginWindow(): number {
     this.generation += 1;
-    this.previousDirection = 'neutral';
+    this.directionLatch = EMPTY_DIRECTION_LATCH;
     this.previousHeadFeature = null;
     return this.generation;
   }
@@ -100,6 +101,7 @@ export class VisionInference {
     this.video = null;
     this.busy = false;
     this.generation += 1;
+    this.directionLatch = EMPTY_DIRECTION_LATCH;
   }
 
   destroy(): void {
@@ -167,11 +169,12 @@ export class VisionInference {
       && (!previous.source || !result.feature.source || previous.source === result.feature.source)
       && Math.hypot(angleDelta(result.feature.x, previous.x), angleDelta(result.feature.y, previous.y)) > 25 * Math.PI / 180) {
       this.onSample?.({ ...result, facePresent, direction: 'unknown', confidence: 0, quality: 0 });
+      this.directionLatch = advanceDirectionLatch(this.directionLatch, 'unknown');
       return;
     }
-    const classification = this.calibration ? classifyHead(result.feature, this.calibration, this.previousDirection) : null;
+    const classification = this.calibration ? classifyHead(result.feature, this.calibration, this.directionLatch.stableDirection) : null;
     if (!classification) return;
-    this.previousDirection = classification.direction;
+    this.directionLatch = advanceDirectionLatch(this.directionLatch, classification.direction);
     this.onSample?.({ ...result, facePresent, direction: classification.direction, confidence: classification.confidence, quality: classification.quality });
   }
 }
