@@ -70,7 +70,7 @@
 - [x] Replace the placeholder melody with a rights-clean original procedural challenge soundtrack.
 - [x] Add a synchronized countdown buildup and synthesized WOAH vocal/bass drop at the host beat.
 - [x] Add deterministic music-pattern/audio-timing regressions and verify test/lint/build/runtime preview.
-- [ ] Publish the original soundtrack release to Railway and update the Usion iframe version.
+- [x] Publish the original soundtrack release to Railway and update the Usion iframe version (`9840e1f`, Railway deployment `c75f3862-720b-4cfc-819d-e0466b3583d5`).
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
