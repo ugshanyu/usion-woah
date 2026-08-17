@@ -18,6 +18,7 @@ const turnTtlSeconds = Number.isFinite(requestedTurnTtlSeconds)
   : 600;
 const turnConfigured = Boolean(turnUrls.length && turnSecret);
 const issueBuckets = new Map();
+const upstreamTimeoutMs = 10_000;
 
 if (process.env.NODE_ENV === 'production' && (!serviceId || !turnConfigured)) {
   console.error('[FATAL] USION_SERVICE_ID and authenticated TURN are required in production.');
@@ -62,19 +63,22 @@ async function verifyIdentity(token, expectedServiceId) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, expected_service_id: expectedServiceId }),
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(upstreamTimeoutMs),
   });
   if (!response.ok) throw new Error('invalid_token');
   return response.json();
 }
 
-async function verifyRoom(token, roomId, userId, expectedServiceId) {
+async function getRoom(token, roomId) {
   const response = await fetch(`${apiUrl}/games/rooms/${encodeURIComponent(roomId)}`, {
     headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(upstreamTimeoutMs),
   });
   if (!response.ok) throw new Error('invalid_room');
-  const room = await response.json();
+  return response.json();
+}
+
+function verifyRoom(room, userId, expectedServiceId) {
   const roomServiceId = room.service_id || room.game_id;
   if (roomServiceId !== expectedServiceId || !Array.isArray(room.player_ids) || !room.player_ids.includes(userId)) throw new Error('not_participant');
 }
@@ -108,10 +112,15 @@ app.post('/api/ice', async (request, response) => {
   if (!token || !roomId || roomId.length > 128 || !requestedServiceId || requestedServiceId !== serviceId) return response.status(400).json({ error: 'invalid_request' });
   if (!allowed(request.ip || 'unknown')) return response.status(429).json({ error: 'rate_limited' });
   try {
-    const identity = await verifyIdentity(token, serviceId);
+    // These checks are independent network calls. Running them together keeps
+    // TURN issuance comfortably inside the mobile client's deadline.
+    const [identity, room] = await Promise.all([
+      verifyIdentity(token, serviceId),
+      getRoom(token, roomId),
+    ]);
     const userId = String(identity.user_id || '');
     if (!userId) throw new Error('invalid_identity');
-    await verifyRoom(token, roomId, userId, serviceId);
+    verifyRoom(room, userId, serviceId);
     if (!turnConfigured) throw new Error('turn_unavailable');
     const credentials = createTurnCredentials(turnSecret, userId, turnTtlSeconds);
     response.setHeader('Cache-Control', 'no-store');

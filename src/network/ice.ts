@@ -8,7 +8,10 @@ export async function fetchIceServers(roomId: string, serviceId: string): Promis
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ roomId, serviceId }),
-      signal: AbortSignal.timeout(5000),
+      // The endpoint verifies both the iframe token and room membership against
+      // the Usion API before issuing credentials. Mobile requests can take more
+      // than five seconds while the upstream service wakes or is under load.
+      signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error('ice_unavailable');
     const payload = await response.json() as { iceServers?: RTCIceServer[] };
