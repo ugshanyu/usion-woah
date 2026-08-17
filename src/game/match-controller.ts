@@ -9,7 +9,7 @@ import { SampleBuffer } from '../vision/sample-buffer';
 import { pointerForRound, TOTAL_ROUNDS, winningPlayerId } from './match-format';
 import type { MatchView } from './match-view';
 import { chooseFirstPointer, isDirectionChoiceInWindow, judgeRound, scoreRound, summarizeDirectionChoice, summarizeHeadGesture } from './rules';
-import { HEAD_ACTIVE_END_MS, HEAD_ACTIVE_START_MS, HEAD_INFERENCE_DRAIN_MS, HEAD_NEUTRAL_START_MS, HEAD_RECOGNITION_TIMEOUT_MS, OBSERVATION_NETWORK_GRACE_MS } from './timing';
+import { HEAD_ACTIVE_END_MS, HEAD_ACTIVE_START_MS, HEAD_INFERENCE_DRAIN_MS, HEAD_NEUTRAL_START_MS, HEAD_RECOGNITION_TIMEOUT_MS, OBSERVATION_NETWORK_GRACE_MS, ROUND_ANNOUNCE_LEAD_MS } from './timing';
 import { TimerBag } from './timer-bag';
 import type { DirectionChoice, DirectionSample, GestureSummary, ObservationStatus, Role } from './types';
 
@@ -254,7 +254,7 @@ export class MatchController {
     if (!secondPointerId) return;
     const pointerId = pointerForRound(roundId, session.firstPointerId, secondPointerId);
     const lookerId = room.roster.find((id) => id !== pointerId)!;
-    const targetHostMs = performance.now() + 3200;
+    const targetHostMs = performance.now() + ROUND_ANNOUNCE_LEAD_MS;
     const event: RoundArmEvent = { ns: 'woah.control.v1', kind: 'round', eventId: crypto.randomUUID(), matchId: session.matchId, hostEpoch: session.hostEpoch, roundId, generation: roundId, pointerId, lookerId, targetHostMs, deadlineHostMs: targetHostMs + HEAD_RECOGNITION_TIMEOUT_MS + HEAD_INFERENCE_DRAIN_MS };
     await this.sendEssential(event);
   }
@@ -270,7 +270,7 @@ export class MatchController {
     this.currentVisionGeneration = role === 'looker' ? this.inference.beginWindow() : null;
     this.samples.clear();
     const targetLocalMs = this.clock.hostToLocal(event.targetHostMs);
-    this.cue.scheduleCountdown(targetLocalMs);
+    this.cue.scheduleCountdown(targetLocalMs, event.roundId);
     this.emit({ phase: 'countdown', role, targetLocalMs, roundId: event.roundId, result: null });
     this.timers.add(() => this.openObservationWindow(event, role, targetLocalMs), Math.max(0, targetLocalMs - performance.now()));
     if (role === 'looker') {

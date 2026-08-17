@@ -2,6 +2,10 @@ export const VISION_MIN_INTERVAL_MS = 50;
 export const VISION_MAX_INTERVAL_MS = 160;
 export const VISION_SLOW_P95_MS = 160;
 
+// Announce before the three-second audio excerpt starts so both peers can
+// schedule the same AudioBuffer source despite ordinary signaling latency.
+export const ROUND_ANNOUNCE_LEAD_MS = 3500;
+
 // All offsets are relative to the capture-time WOAH beat.
 // Rearm before the visible "1" so a held pose cannot become a fresh gesture.
 export const HEAD_NEUTRAL_START_MS = -1600;

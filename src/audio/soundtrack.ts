@@ -1,11 +1,40 @@
-import { midiToFrequency, TRACK_STEP_SECONDS, trackStepAt, type TrackStep } from './original-track';
-
 export const SOUNDTRACK_SHA256 = '8FE25C5D5854494299593B6D7FCB98874B71B755A939AD7044E45B05B2C1D167';
 export const SOUNDTRACK_URL = '/audio/krypto9095-woah-feat-d3mstreet-8fe25c5d.mp3';
-export const SOUNDTRACK_VOLUME = 0.28;
-export type SoundtrackMode = 'silent' | 'bundled-song' | 'procedural-fallback';
+export const SOUNDTRACK_VOLUME = 0.42;
+export const ROUND_CUE_LEAD_SECONDS = 3;
+export const ROUND_CUE_AUDIBLE_LEAD_SECONDS = 2.45;
+export const ROUND_CUE_TAIL_SECONDS = 1.2;
 
-type StepScheduler = (step: TrackStep, when: number, output: AudioNode) => void;
+// Verified twice with independent word-timestamp passes over this exact file hash.
+export const ROUND_WOAH_ONSETS_SECONDS = [
+  13.68, 16.72, 20.12, 23.44, 26.76,
+  30.22, 33.36, 36.8, 40.18, 43.48,
+] as const;
+
+export type SoundtrackMode = 'silent' | 'loading' | 'bundled-song-ready' | 'bundled-song' | 'procedural-fallback';
+
+export type RoundCueWindow = {
+  roundId: number;
+  vocalOnsetSeconds: number;
+  sourceOffsetSeconds: number;
+  durationSeconds: number;
+};
+
+type SoundtrackLoader = (context: BaseAudioContext) => Promise<AudioBuffer | null>;
+type CueNodes = { source: AudioBufferSourceNode; gain: GainNode };
+
+export function roundCueWindow(roundId: number): RoundCueWindow {
+  if (!Number.isInteger(roundId) || roundId < 1 || roundId > ROUND_WOAH_ONSETS_SECONDS.length) {
+    throw new Error('invalid_audio_round');
+  }
+  const vocalOnsetSeconds = ROUND_WOAH_ONSETS_SECONDS[roundId - 1];
+  return {
+    roundId,
+    vocalOnsetSeconds,
+    sourceOffsetSeconds: vocalOnsetSeconds - ROUND_CUE_LEAD_SECONDS,
+    durationSeconds: ROUND_CUE_LEAD_SECONDS + ROUND_CUE_TAIL_SECONDS,
+  };
+}
 
 export async function decodeSoundtrack(
   context: BaseAudioContext,
@@ -25,18 +54,16 @@ export class SoundtrackPlayer {
   private buffer: AudioBuffer | null = null;
   private preparation: Promise<boolean> | null = null;
   private requested = false;
-  private songSource: AudioBufferSourceNode | null = null;
-  private songGain: GainNode | null = null;
-  private fallbackGain: GainNode | null = null;
-  private fallbackTimer: number | null = null;
-  private nextFallbackNote = 0;
-  private fallbackStep = 0;
+  private unavailable = false;
+  private readonly activeCues = new Set<CueNodes>();
 
-  constructor(private readonly context: AudioContext, private readonly scheduleStep: StepScheduler) {}
+  constructor(private readonly context: AudioContext, private readonly loader: SoundtrackLoader = decodeSoundtrack) {}
 
   get mode(): SoundtrackMode {
-    if (this.songSource) return 'bundled-song';
-    if (this.fallbackTimer !== null) return 'procedural-fallback';
+    if (this.activeCues.size > 0) return 'bundled-song';
+    if (this.requested && this.buffer) return 'bundled-song-ready';
+    if (this.requested && this.unavailable) return 'procedural-fallback';
+    if (this.requested) return 'loading';
     return 'silent';
   }
 
@@ -45,9 +72,9 @@ export class SoundtrackPlayer {
   }
 
   prepare(): Promise<boolean> {
-    this.preparation ??= decodeSoundtrack(this.context).then((buffer) => {
+    this.preparation ??= this.loader(this.context).then((buffer) => {
       this.buffer = buffer;
-      if (buffer && this.requested) this.startSong();
+      this.unavailable = !buffer;
       return Boolean(buffer);
     });
     return this.preparation;
@@ -55,112 +82,52 @@ export class SoundtrackPlayer {
 
   start(): void {
     this.requested = true;
-    if (!this.startSong()) this.startFallback();
     void this.prepare();
+  }
+
+  scheduleRoundCue(targetTime: number, roundId: number): boolean {
+    if (!this.requested || !this.buffer || !Number.isFinite(targetTime)) return false;
+    const cue = roundCueWindow(roundId);
+    const startTime = targetTime - ROUND_CUE_LEAD_SECONDS;
+    if (startTime < this.context.currentTime + 0.05) return false;
+    if (cue.sourceOffsetSeconds + cue.durationSeconds > this.buffer.duration) return false;
+
+    const source = this.context.createBufferSource();
+    const gain = this.context.createGain();
+    const nodes = { source, gain };
+    source.buffer = this.buffer;
+    gain.gain.setValueAtTime(0.0001, startTime);
+    // The hook repeats about every 3.3 s. Keep the preceding WHOA tail muted,
+    // then open the excerpt after a verified clean gap before this round's word.
+    gain.gain.setValueAtTime(0.0001, targetTime - ROUND_CUE_AUDIBLE_LEAD_SECONDS);
+    gain.gain.exponentialRampToValueAtTime(SOUNDTRACK_VOLUME, targetTime - ROUND_CUE_AUDIBLE_LEAD_SECONDS + 0.12);
+    gain.gain.setValueAtTime(SOUNDTRACK_VOLUME, targetTime + 0.72);
+    gain.gain.exponentialRampToValueAtTime(0.0001, targetTime + ROUND_CUE_TAIL_SECONDS);
+    source.connect(gain);
+    gain.connect(this.context.destination);
+    source.onended = () => this.release(nodes);
+    this.activeCues.add(nodes);
+    try {
+      source.start(startTime, cue.sourceOffsetSeconds, cue.durationSeconds);
+      return true;
+    } catch {
+      this.release(nodes);
+      return false;
+    }
   }
 
   stop(): void {
     this.requested = false;
-    this.stopSong();
-    this.stopFallback();
-  }
-
-  duckForCountdown(targetTime: number): void {
-    const gain = this.songGain?.gain;
-    if (!gain) return;
-    const start = Math.max(this.context.currentTime + 0.01, targetTime - 2.95);
-    gain.cancelScheduledValues(start);
-    gain.setValueAtTime(SOUNDTRACK_VOLUME, start);
-    gain.linearRampToValueAtTime(0.1, Math.max(start + 0.02, targetTime - 0.75));
-    gain.setValueAtTime(0.1, targetTime + 0.42);
-    gain.linearRampToValueAtTime(SOUNDTRACK_VOLUME, targetTime + 1.05);
-  }
-
-  private startSong(): boolean {
-    if (!this.buffer) return false;
-    if (this.songSource) return true;
-    this.stopFallback();
-    const source = this.context.createBufferSource();
-    const gain = this.context.createGain();
-    source.buffer = this.buffer;
-    source.loop = true;
-    gain.gain.setValueAtTime(0.0001, this.context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(SOUNDTRACK_VOLUME, this.context.currentTime + 0.35);
-    source.connect(gain).connect(this.context.destination);
-    source.onended = () => {
-      if (this.songSource === source) {
-        this.songSource = null;
-        this.songGain = null;
-      }
-      source.disconnect();
-      gain.disconnect();
-    };
-    this.songSource = source;
-    this.songGain = gain;
-    source.start(this.context.currentTime + 0.02);
-    return true;
-  }
-
-  private stopSong(): void {
-    const source = this.songSource;
-    const gain = this.songGain;
-    this.songSource = null;
-    this.songGain = null;
-    if (!source || !gain) return;
-    gain.gain.cancelScheduledValues(this.context.currentTime);
-    gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), this.context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, this.context.currentTime + 0.08);
-    try { source.stop(this.context.currentTime + 0.1); } catch { /* already stopped */ }
-  }
-
-  private startFallback(): void {
-    if (this.fallbackTimer !== null) return;
-    const gain = this.context.createGain();
-    gain.gain.setValueAtTime(0.0001, this.context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.72, this.context.currentTime + 0.35);
-    gain.connect(this.context.destination);
-    this.fallbackGain = gain;
-    this.fallbackStep = 0;
-    this.nextFallbackNote = this.context.currentTime + 0.05;
-    this.scheduleFallback();
-    this.fallbackTimer = window.setInterval(() => this.scheduleFallback(), 250);
-  }
-
-  private scheduleFallback(): void {
-    const output = this.fallbackGain;
-    if (!output || this.context.state !== 'running') return;
-    while (this.nextFallbackNote < this.context.currentTime + 0.8) {
-      this.scheduleStep(trackStepAt(this.fallbackStep), this.nextFallbackNote, output);
-      this.fallbackStep += 1;
-      this.nextFallbackNote += TRACK_STEP_SECONDS;
+    for (const nodes of [...this.activeCues]) {
+      try { nodes.source.stop(this.context.currentTime + 0.02); } catch { /* already stopped */ }
+      this.release(nodes);
     }
   }
 
-  private stopFallback(): void {
-    if (this.fallbackTimer !== null) window.clearInterval(this.fallbackTimer);
-    this.fallbackTimer = null;
-    const gain = this.fallbackGain;
-    this.fallbackGain = null;
-    if (!gain) return;
-    gain.gain.cancelScheduledValues(this.context.currentTime);
-    gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), this.context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, this.context.currentTime + 0.08);
+  private release(nodes: CueNodes): void {
+    if (!this.activeCues.delete(nodes)) return;
+    nodes.source.onended = null;
+    nodes.source.disconnect();
+    nodes.gain.disconnect();
   }
-}
-
-export function scheduleProceduralStep(step: TrackStep, when: number, output: AudioNode, schedule: {
-  kick: (when: number, volume: number, output: AudioNode) => void;
-  snare: (when: number, output: AudioNode) => void;
-  hat: (when: number, duration: number, open: boolean, output: AudioNode) => void;
-  bass: (frequency: number, when: number, output: AudioNode) => void;
-  lead: (frequency: number, when: number, output: AudioNode) => void;
-  chord: (frequencies: number[], when: number, output: AudioNode) => void;
-}): void {
-  if (step.kick) schedule.kick(when, 0.16, output);
-  if (step.snare) schedule.snare(when, output);
-  if (step.closedHat) schedule.hat(when, 0.035, false, output);
-  if (step.openHat) schedule.hat(when, 0.12, true, output);
-  if (step.bassMidi !== null) schedule.bass(midiToFrequency(step.bassMidi), when, output);
-  if (step.leadMidi !== null) schedule.lead(midiToFrequency(step.leadMidi), when, output);
-  if (step.chordMidi) schedule.chord(step.chordMidi.map(midiToFrequency), when, output);
 }

@@ -75,6 +75,11 @@
 - [x] Play the bundled song without delaying camera startup, retain the procedural fallback, and preserve host-clock WOAH timing.
 - [x] Add audio-loader regressions and verify the real browser decode/playback path (123.4 s decoded in Chromium).
 - [x] Publish the bundled-song release to Railway and update the Usion iframe version (`9879f41`, Railway deployment `5939f783-bbaa-49b5-be82-90f950758b48`).
+- [ ] Replace free-running full-song playback with ten verified per-round WHOA vocal markers.
+- [ ] Schedule each MP3 excerpt so its real vocal onset lands on the shared host-clock target.
+- [ ] Keep the synthetic countdown/WOAH only as an explicit asset/decode/late-schedule fallback.
+- [ ] Add marker, source-offset, target-alignment, late-schedule, and fallback regressions.
+- [ ] Verify the real browser AudioBuffer source path, then publish Railway/Usions production.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
@@ -84,3 +89,5 @@ Input decision (2026-08-13): both players run only on-device face-direction dete
 Match-format decision (2026-08-14): the host randomly selects the first pointer. That player guesses in rounds 1–5, then the other player guesses in rounds 6–10 regardless of prior verdicts. A correct guess adds one point; missing timed input subtracts one point from the player who missed, clamped at zero. After round 10, the higher score wins and equal scores are a draw.
 
 Audio decision (2026-08-17): the owner supplied and authorized the exact MP3 for this release. Bundle that file locally in the standalone repository and load/decode it asynchronously after the user gesture so camera startup is never blocked. Keep the original procedural soundtrack as the offline/decode fallback, and keep the synchronized countdown/WOAH target driven by capture-time match timing rather than media playback position.
+
+Vocal-sync decision (2026-08-17): two independent local word-timestamp passes found the first ten WHOA onsets at 13.680, 16.720, 20.120, 23.440, 26.760, 30.220, 33.360, 36.800, 40.180, and 43.480 seconds. Round N schedules the source three seconds before marker N; the decoded vocal onset must land at the shared host-clock target. The gain opens 2.45 seconds before target so the previous repeating WHOA tail is never audible. Do not run rounds from a free-running media position, because inference/verdict latency is variable.

@@ -1,5 +1,5 @@
 import type { Verdict } from '../game/types';
-import { scheduleProceduralStep, SoundtrackPlayer, type SoundtrackMode } from './soundtrack';
+import { SoundtrackPlayer, type SoundtrackMode } from './soundtrack';
 
 export const COUNTDOWN_OFFSETS_MS = [-3000, -2000, -1000, 0] as const;
 export const SYNTH_WOAH_DURATION_MS = 760;
@@ -21,17 +21,12 @@ export class CuePlayer {
     this.context ??= new AudioContext({ latencyHint: 'interactive' });
     this.noiseBuffer ??= this.createNoiseBuffer(this.context);
     if (this.context.state === 'suspended') await this.context.resume();
-    this.soundtrack ??= new SoundtrackPlayer(this.context, (step, when, output) => {
-      scheduleProceduralStep(step, when, output, {
-        kick: (at, volume, node) => this.kick(at, volume, node),
-        snare: (at, node) => this.snare(at, node),
-        hat: (at, duration, open, node) => this.hat(at, duration, open, node),
-        bass: (frequency, at, node) => this.bass(frequency, at, node),
-        lead: (frequency, at, node) => this.lead(frequency, at, node),
-        chord: (frequencies, at, node) => this.chord(frequencies, at, node),
-      });
-    });
+    this.soundtrack ??= new SoundtrackPlayer(this.context);
     void this.soundtrack.prepare();
+  }
+
+  prepareSoundtrack(): Promise<boolean> {
+    return this.soundtrack?.prepare() ?? Promise.resolve(false);
   }
 
   startSoundtrack(): void {
@@ -42,11 +37,11 @@ export class CuePlayer {
     this.soundtrack?.stop();
   }
 
-  scheduleCountdown(targetPerfMs: number): void {
+  scheduleCountdown(targetPerfMs: number, roundId: number): void {
     const context = this.context;
     if (!context || context.state !== 'running') return;
     const target = context.currentTime + Math.max(0, targetPerfMs - performance.now()) / 1000;
-    this.soundtrack?.duckForCountdown(target);
+    if (this.soundtrack?.scheduleRoundCue(target, roundId)) return;
     COUNTDOWN_OFFSETS_MS.slice(0, 3).forEach((offset, index) => {
       const when = target + offset / 1000;
       if (when <= context.currentTime + 0.01) return;
@@ -103,11 +98,6 @@ export class CuePlayer {
     oscillator.stop(when + 0.25);
   }
 
-  private snare(when: number, output: AudioNode): void {
-    this.noiseHit(when, 0.16, 0.085, 1400, output);
-    this.tone(185, when, 0.09, 0.045, 'triangle', undefined, output);
-  }
-
   private hat(when: number, duration: number, open: boolean, output: AudioNode): void {
     this.noiseHit(when, duration, open ? 0.035 : 0.022, open ? 5200 : 6800, output);
   }
@@ -126,33 +116,6 @@ export class CuePlayer {
     source.connect(filter).connect(gain).connect(output);
     source.start(when);
     source.stop(when + duration + 0.01);
-  }
-
-  private bass(frequency: number, when: number, output: AudioNode): void {
-    const context = this.context;
-    if (!context) return;
-    const oscillator = context.createOscillator();
-    const filter = context.createBiquadFilter();
-    const gain = context.createGain();
-    oscillator.type = 'sawtooth';
-    oscillator.frequency.setValueAtTime(frequency, when);
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(520, when);
-    filter.Q.value = 3;
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(0.065, when + 0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
-    oscillator.connect(filter).connect(gain).connect(output);
-    oscillator.start(when);
-    oscillator.stop(when + 0.24);
-  }
-
-  private lead(frequency: number, when: number, output: AudioNode): void {
-    this.tone(frequency, when, 0.105, 0.025, 'square', frequency * 0.985, output);
-  }
-
-  private chord(frequencies: number[], when: number, output: AudioNode): void {
-    frequencies.forEach((frequency, index) => this.tone(frequency, when + index * 0.006, 0.32, 0.014, 'triangle', undefined, output));
   }
 
   private riser(when: number, duration: number): void {
