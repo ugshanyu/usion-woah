@@ -82,7 +82,7 @@
 - [x] Verify the real browser AudioBuffer source path, then publish Railway/Usions production (`465e849`, Railway deployment `51e7bdd2-a8fb-4835-9880-a6796e904d02`).
 - [x] Pin one player-centric presentation contract across local camera, remote camera, direction buttons, and verdict arrows.
 - [x] Mirror both camera tiles consistently and add a regression for visible right/left matching the selected/result arrow.
-- [ ] Verify test/lint/build/browser presentation, then publish the direction-UI fix to Railway/Usions production.
+- [x] Verify test/lint/build/browser presentation, then publish the direction-UI fix to Railway/Usions production (`d021f3e`, Railway deployment `d82c9562-874b-4671-bf68-ee3940b6e4b9`).
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
