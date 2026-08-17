@@ -66,7 +66,7 @@ Production intentionally uses STUN-only direct P2P:
 
 After deployment:
 
-1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `pointerInput: "four-buttons"`, `audioMode: "procedural-original-120bpm"`, `turnMode: "fixed-five-round-blocks"`, `roundsPerPointer: 5`, and `totalRounds: 10`.
+1. Confirm `/health` returns `ok: true`, `iceMode: "stun-only"`, `visionMode: "face-only"`, `calibrationMode: "neutral-only"`, `pointerInput: "four-buttons"`, `audioMode: "bundled-song-with-synced-cue-and-procedural-fallback"`, `soundtrackSha256: "8FE25C5D...1D167"`, `turnMode: "fixed-five-round-blocks"`, `roundsPerPointer: 5`, and `totalRounds: 10`.
 2. Confirm the response CSP allows `frame-ancestors https://usions.com` and does not block camera access.
 3. Add the exact HTTPS production origin to Usion web's camera-only Permissions-Policy allowlist. Never wildcard preview origins.
 4. Register `woah-challenge` through the idempotent Usion seed, initially unpublished.

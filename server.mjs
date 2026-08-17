@@ -78,7 +78,8 @@ app.get('/health', (_, response) => response.json({
   visionMode: 'face-only',
   calibrationMode: 'neutral-only',
   pointerInput: 'four-buttons',
-  audioMode: 'procedural-original-120bpm',
+  audioMode: 'bundled-song-with-synced-cue-and-procedural-fallback',
+  soundtrackSha256: '8FE25C5D5854494299593B6D7FCB98874B71B755A939AD7044E45B05B2C1D167',
   turnMode: 'fixed-five-round-blocks',
   roundsPerPointer: 5,
   totalRounds: 10,
@@ -106,7 +107,7 @@ app.use(express.static(resolve(root, 'dist'), {
   maxAge: '1h',
   setHeaders(response, path) {
     if (path.endsWith('.html')) response.setHeader('Cache-Control', 'no-store');
-    else if (path.includes(`${resolve(root, 'dist', 'assets')}`)) response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    else if (path.includes(`${resolve(root, 'dist', 'assets')}`) || path.includes(`${resolve(root, 'dist', 'audio')}`)) response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   },
 }));
 

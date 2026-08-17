@@ -12,7 +12,7 @@ const t = translator('mn');
 
 export function MatchPreview() {
   const audio = useRef<CuePlayer | null>(null);
-  const [audioRunning, setAudioRunning] = useState(false);
+  const [audioStatus, setAudioStatus] = useState('Play bundled song');
   const role = new URLSearchParams(location.search).get('role') === 'looker' ? 'looker' : 'pointer';
   const view: MatchView = {
     phase: 'countdown', peerName: 'Найз', localReady: true, peerReady: true, role,
@@ -26,7 +26,12 @@ export function MatchPreview() {
     await audio.current.unlock();
     audio.current.startSoundtrack();
     audio.current.scheduleCountdown(performance.now() + 3200);
-    setAudioRunning(true);
+    setAudioStatus('Loading bundled song...');
+    window.setTimeout(() => {
+      const mode = audio.current?.soundtrackMode;
+      const duration = audio.current?.soundtrackDurationSeconds;
+      setAudioStatus(mode === 'bundled-song' ? `Bundled song running (${duration?.toFixed(1)}s)` : 'Procedural fallback running');
+    }, 2500);
   }
 
   return (
@@ -35,7 +40,7 @@ export function MatchPreview() {
       <VideoStage localRef={localVideo} remoteRef={remoteVideo} showRemote focus={role === 'pointer' ? 'remote' : 'local'} localLabel={t('you')} remoteLabel="Найз" />
       <div className="cue"><strong>{role === 'pointer' ? t('pointer') : t('looker')}</strong><span>2</span><p>{role === 'pointer' ? t('pointerHint') : t('lookerHint')}</p><div className="countdown-track"><i style={{ transform: 'scaleX(.56)' }} /></div></div>
       {role === 'pointer' && <DirectionPad roundId={3} expired={false} onChoose={() => true} t={t} />}
-      <button className="audio-preview" type="button" onClick={() => void previewAudio()}>{audioRunning ? 'Original audio running' : 'Play original audio'}</button>
+      <button className="audio-preview" type="button" onClick={() => void previewAudio()}>{audioStatus}</button>
     </main>
   );
 }

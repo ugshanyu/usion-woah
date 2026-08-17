@@ -71,6 +71,10 @@
 - [x] Add a synchronized countdown buildup and synthesized WOAH vocal/bass drop at the host beat.
 - [x] Add deterministic music-pattern/audio-timing regressions and verify test/lint/build/runtime preview.
 - [x] Publish the original soundtrack release to Railway and update the Usion iframe version (`9840e1f`, Railway deployment `c75f3862-720b-4cfc-819d-e0466b3583d5`).
+- [x] Import the user-supplied MP3 into the standalone game with an auditable content hash.
+- [x] Play the bundled song without delaying camera startup, retain the procedural fallback, and preserve host-clock WOAH timing.
+- [x] Add audio-loader regressions and verify the real browser decode/playback path (123.4 s decoded in Chromium).
+- [ ] Publish the bundled-song release to Railway and update the Usion iframe version.
 - [ ] Remove this task file after every item is complete and verified.
 
 Architecture decision (2026-08-12): ship one Railway service with STUN-only direct P2P video. Usion owns identity, invite/room lifecycle, signaling, the essential action journal, and result integration. Railway serves the app/models and authenticated ICE configuration. No Cloudflare, AWS, managed TURN, or self-hosted coturn is part of v1. Direct video may fail on symmetric NAT/mobile-carrier networks; the game must stop before round start and explain the incompatibility instead of silently degrading fairness.
@@ -79,4 +83,4 @@ Input decision (2026-08-13): both players run only on-device face-direction dete
 
 Match-format decision (2026-08-14): the host randomly selects the first pointer. That player guesses in rounds 1–5, then the other player guesses in rounds 6–10 regardless of prior verdicts. A correct guess adds one point; missing timed input subtracts one point from the player who missed, clamped at zero. After round 10, the higher score wins and equal scores are a draw.
 
-Audio decision (2026-08-17): use an original procedural 120 BPM club/trap loop and synthesize the countdown buildup plus WOAH vocal locally with Web Audio. Do not download, stream, or imitate the melody/recording from the referenced commercial song. The synchronized WOAH target remains driven by capture-time match timing, not by media playback position.
+Audio decision (2026-08-17): the owner supplied and authorized the exact MP3 for this release. Bundle that file locally in the standalone repository and load/decode it asynchronously after the user gesture so camera startup is never blocked. Keep the original procedural soundtrack as the offline/decode fallback, and keep the synchronized countdown/WOAH target driven by capture-time match timing rather than media playback position.

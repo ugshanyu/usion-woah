@@ -1,44 +1,52 @@
 import type { Verdict } from '../game/types';
-import { midiToFrequency, TRACK_STEP_SECONDS, trackStepAt } from './original-track';
+import { scheduleProceduralStep, SoundtrackPlayer, type SoundtrackMode } from './soundtrack';
 
 export const COUNTDOWN_OFFSETS_MS = [-3000, -2000, -1000, 0] as const;
 export const SYNTH_WOAH_DURATION_MS = 760;
 
 export class CuePlayer {
   private context: AudioContext | null = null;
-  private musicGain: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
-  private musicTimer: number | null = null;
-  private nextMusicNote = 0;
-  private musicStep = 0;
+  private soundtrack: SoundtrackPlayer | null = null;
+
+  get soundtrackMode(): SoundtrackMode {
+    return this.soundtrack?.mode ?? 'silent';
+  }
+
+  get soundtrackDurationSeconds(): number | null {
+    return this.soundtrack?.durationSeconds ?? null;
+  }
 
   async unlock(): Promise<void> {
     this.context ??= new AudioContext({ latencyHint: 'interactive' });
     this.noiseBuffer ??= this.createNoiseBuffer(this.context);
     if (this.context.state === 'suspended') await this.context.resume();
+    this.soundtrack ??= new SoundtrackPlayer(this.context, (step, when, output) => {
+      scheduleProceduralStep(step, when, output, {
+        kick: (at, volume, node) => this.kick(at, volume, node),
+        snare: (at, node) => this.snare(at, node),
+        hat: (at, duration, open, node) => this.hat(at, duration, open, node),
+        bass: (frequency, at, node) => this.bass(frequency, at, node),
+        lead: (frequency, at, node) => this.lead(frequency, at, node),
+        chord: (frequencies, at, node) => this.chord(frequencies, at, node),
+      });
+    });
+    void this.soundtrack.prepare();
   }
 
   startSoundtrack(): void {
-    this.startMusic();
+    this.soundtrack?.start();
   }
 
   stopSoundtrack(): void {
-    if (this.musicTimer !== null) window.clearInterval(this.musicTimer);
-    this.musicTimer = null;
-    const context = this.context;
-    const gain = this.musicGain;
-    if (context && gain) {
-      gain.gain.cancelScheduledValues(context.currentTime);
-      gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.08);
-    }
-    this.musicGain = null;
+    this.soundtrack?.stop();
   }
 
   scheduleCountdown(targetPerfMs: number): void {
     const context = this.context;
     if (!context || context.state !== 'running') return;
     const target = context.currentTime + Math.max(0, targetPerfMs - performance.now()) / 1000;
+    this.soundtrack?.duckForCountdown(target);
     COUNTDOWN_OFFSETS_MS.slice(0, 3).forEach((offset, index) => {
       const when = target + offset / 1000;
       if (when <= context.currentTime + 0.01) return;
@@ -69,38 +77,7 @@ export class CuePlayer {
     void this.context?.close();
     this.context = null;
     this.noiseBuffer = null;
-  }
-
-  private startMusic(): void {
-    const context = this.context;
-    if (!context || this.musicTimer !== null) return;
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.72, context.currentTime + 0.35);
-    gain.connect(context.destination);
-    this.musicGain = gain;
-    this.musicStep = 0;
-    this.nextMusicNote = context.currentTime + 0.05;
-    this.scheduleMusic();
-    this.musicTimer = window.setInterval(() => this.scheduleMusic(), 250);
-  }
-
-  private scheduleMusic(): void {
-    const context = this.context;
-    const output = this.musicGain;
-    if (!context || !output || context.state !== 'running') return;
-    while (this.nextMusicNote < context.currentTime + 0.8) {
-      const step = trackStepAt(this.musicStep);
-      if (step.kick) this.kick(this.nextMusicNote, 0.16, output);
-      if (step.snare) this.snare(this.nextMusicNote, output);
-      if (step.closedHat) this.hat(this.nextMusicNote, 0.035, false, output);
-      if (step.openHat) this.hat(this.nextMusicNote, 0.12, true, output);
-      if (step.bassMidi !== null) this.bass(midiToFrequency(step.bassMidi), this.nextMusicNote, output);
-      if (step.leadMidi !== null) this.lead(midiToFrequency(step.leadMidi), this.nextMusicNote, output);
-      if (step.chordMidi) this.chord(step.chordMidi.map(midiToFrequency), this.nextMusicNote, output);
-      this.musicStep += 1;
-      this.nextMusicNote += TRACK_STEP_SECONDS;
-    }
+    this.soundtrack = null;
   }
 
   private countdownHit(when: number, index: number): void {
